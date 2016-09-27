@@ -23,6 +23,7 @@
 #include <..\OriginLab\OCHttpUtils.h>
 ////////////////////////////////////////////////////////////////////////////////////
 #define STR_YAHOO_API_BASE "http://ichart.finance.yahoo.com/table.csv?s=%s&a=%d&b=%d&c=%d&d=%d&e=%d&f=%d&g=d&ignore=.csv"
+#define STR_YAHOO_API_ALL "http://ichart.finance.yahoo.com/table.csv?s=%s&g=d&ignore=.csv"
 #define STR_FILE_NAME_DOWNLOAD "Table.csv"
 #define STR_TEMPLATE_NAME_WBK "Stock Analyzer.ogw"
 
@@ -34,15 +35,24 @@ void StockAnalyzer_Main() {
 	// Get Config Tree
 	Tree tr;
 	tr = StockAnalyzer_GUI();
+	if (tr.IsEmpty()) {
+		return;
+	}
 	
 	// Download File
 	string strDownload = StockAnalyzer_Download(tr.Data.SymbolName.strVal, tr.Data.StartDate.dVal, tr.Data.EndDate.dVal);
 	
 	// Setup workbook
-	StockAnalyzer_Setup(tr, strDownload);
+	WorksheetPage wp;
+	wp = StockAnalyzer_Setup(tr, strDownload);
 	
 	// Delete downloaded file
 	StockAnalyzer_Delete(strDownload);
+	
+	// Force refresh
+	wp.LT_execute("run -p au;");
+	set_active_layer(wp.Layers(1));
+	set_active_layer(wp.Layers(0));
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -58,9 +68,9 @@ Tree StockAnalyzer_GUI() {
 	GETN_OPTION_BRANCH(GETNBRANCH_OPEN)
 		GETN_RADIO_INDEX_EX(Method, "Data Source", 0, "Download through Yahoo API|Select from columns")
 		GETN_STR(SymbolName, "Stock Name", "AAPL")
-		GETN_RADIO_INDEX_EX(Range, "Range", 0, "Last Year|Last Three Year|All|Custom")
-		GETN_DATE(StartDate, "Date From", dToday-366)
-		GETN_DATE(EndDate, "Date To", dToday-1)
+		GETN_RADIO_INDEX_EX(Range, "Range", 1, "Last Year|Last Three Year|All|Custom")
+		GETN_DATE(StartDate, "Date From", dToday-365*2)	GETN_CURRENT_SUBNODE.Show = false;
+		GETN_DATE(EndDate, "Date To", dToday-1)					GETN_CURRENT_SUBNODE.Show = false;
 	GETN_END_BRANCH(Data)
 	
 	GETN_BEGIN_BRANCH(Overlays, "Technical Overlays")
@@ -78,12 +88,47 @@ Tree StockAnalyzer_GUI() {
 	GETN_END_BRANCH(Overlays)
 	
 	GETN_BEGIN_BRANCH(Indicators, "Technical Indicators")
-		//GETN_BEGIN_BRANCH(ADL, "Accumulation Distribution")
-		//GETN_END_BRANCH(ADL)
+		GETN_BEGIN_BRANCH(ADL, "Accumulation Distribution")
+		GETN_END_BRANCH(ADL)
 		
-		GETN_BEGIN_BRANCH(Arron, "Aroon")
+		GETN_BEGIN_BRANCH(Aroon, "Aroon")
 			GETN_NUM(Period, "Look-back Period Window", 25)	GETN_OPTION_NUM_FORMAT( ".0" )
-		GETN_END_BRANCH(Arron)
+		GETN_END_BRANCH(Aroon)
+		
+		GETN_BEGIN_BRANCH(AroonO, "Aroon Oscillator")
+		GETN_END_BRANCH(AroonO)
+		
+		GETN_BEGIN_BRANCH(ADX, "Average Directional Index (ADX)")
+			GETN_NUM(Period, "Look-back Period Window", 14)	GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(ADX)
+		
+		GETN_BEGIN_BRANCH(ATR, "Average True Range (ATR)")
+			GETN_RADIO_INDEX_EX(Method, "Ture Range Method", 0, "Current High less the current Low|Current High less the previous Close (absolute value)|Current Low less the previous Close (absolute value)")
+			GETN_NUM(Period, "Period Window", 14)
+		GETN_END_BRANCH(ATR)
+		
+		GETN_BEGIN_BRANCH(BBW, "Bollinger Band Width")
+		GETN_END_BRANCH(BBW)
+		
+		GETN_BEGIN_BRANCH(pB, "%B Indicator")
+		GETN_END_BRANCH(pB)
+		
+		GETN_BEGIN_BRANCH(CCI, "Commodity Channel Index (CCI)")
+			GETN_NUM(Period, "Look-back Period Window", 20)	GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(CCI)
+		
+		GETN_BEGIN_BRANCH(COPP, "Coppock Curve")
+			GETN_NUM(Period1, "1st ROC Period", 14)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "2nd ROC Period", 11)				GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period3, "WMA Period", 10)				GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(COPP)
+		
+		GETN_BEGIN_BRANCH(ROC, "Rate of Change (ROC)")
+			GETN_NUM(Period1, "1st Period", 250)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "2nd Period", 125)				GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period3, "3rd Period", 63)				GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period4, "4th Period", 21)				GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(ROC)
 		
 	GETN_END_BRANCH(Indicators)
 	
@@ -107,18 +152,59 @@ static double StockAnalyzer_GetToday() {
 // GUI events
 
 static int StockAnalyzer_GUI_event(TreeNode& tr, int nRow, int nEvent, DWORD& dwEnables, LPCSTR lpcszNodeName, WndContainer& getNContainer, string& strAux, string& strErrMsg) {
-	StockAnalyzer_GUI_event_Input(tr.Data);
+	
+	if (0 == lstrcmp(lpcszNodeName, "Range")) {
+		StockAnalyzer_GUI_event_Input(tr.Data);
+	};
+	
+	
+	
 	return 0;
 }
 
-static bool StockAnalyzer_GUI_event_Input(Tree tr) {
+static bool StockAnalyzer_GUI_event_Input(Tree &tr) {
 	switch(tr.Method.nVal) {
 	case 0:	// yahoo api
+		StockAnalyzer_GUI_event_InputAPI(tr);
 		break;
 	case 1:	// column
 		break;
 	}
 	
+	return true;
+}
+
+static bool StockAnalyzer_GUI_event_InputAPI(Tree &tr) {
+	switch (tr.Range.nVal) {
+	case 0:	// last year
+		tr.StartDate.Show = false;
+		tr.EndDate.Show = false;
+		tr.EndDate.dVal = StockAnalyzer_GetToday() - 1;
+		tr.StartDate.dVal = tr.EndDate.dVal - 365;
+		break;
+	case 1:	// Last 3 years
+		tr.StartDate.Show = false;
+		tr.EndDate.Show = false;
+		tr.EndDate.dVal = StockAnalyzer_GetToday() - 1;
+		tr.StartDate.dVal = tr.EndDate.dVal - 365*3;
+		break;
+	case 2:	// All
+		tr.StartDate.Show = false;
+		tr.EndDate.Show = false;
+		tr.EndDate.dVal = NANUM;
+		tr.StartDate.dVal = NANUM;
+		break;
+	case 3:
+		tr.StartDate.Show = true;
+		tr.EndDate.Show = true;
+		if (is_missing_value(tr.EndDate.dVal)) {
+			tr.EndDate.dVal = StockAnalyzer_GetToday() - 1;
+		};
+		if (is_missing_value(tr.StartDate.dVal)) {
+			tr.StartDate.dVal = tr.EndDate.dVal - 365;
+		}
+		break;
+	};
 	return true;
 }
 
@@ -134,7 +220,12 @@ static string StockAnalyzer_Download(string strSymbolName, double dStartDate, do
 	
 	// Build url string
 	string strURL;
-	strURL.Format(STR_YAHOO_API_BASE, strSymbolName, vsStart[1], vsStart[2], vsStart[0], vsEnd[1], vsEnd[2], vsEnd[0]);
+	if (is_missing_value(dStartDate) || is_missing_value(dEndDate)) {
+		strURL.Format(STR_YAHOO_API_BASE, strSymbolName);
+	}
+	else {
+		strURL.Format(STR_YAHOO_API_BASE, strSymbolName, vsStart[1], vsStart[2], vsStart[0], vsEnd[1], vsEnd[2], vsEnd[0]);
+	}
 	
 	// Biuld Local File Path
 	string strFilePath = StockAnalyzer_GetTemplatePath(STR_FILE_NAME_DOWNLOAD);
@@ -171,17 +262,17 @@ static vector<int> StockAnalyzer_ParseDate(double dDate/*, int& nYear, int& nMon
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Template Setup
 
-static void StockAnalyzer_Setup(Tree tr, string strFilePath) {
+static WorksheetPage StockAnalyzer_Setup(Tree tr, string strFilePath) {
 	WorksheetPage wp;
 	string strTemplatePath = StockAnalyzer_GetTemplatePath(STR_TEMPLATE_NAME_WBK);
 	wp.Create(strTemplatePath);
 	set_user_info(wp, "Overlays", tr.Overlays);
 	set_user_info(wp, "Indicators", tr.Indicators);
-	static Worksheet wksData = wp.Layers("Data");
+	Worksheet wksData = wp.Layers("Data");
 	
 	StockAnalyzer_Import(strFilePath, wksData);
 	
-	
+	return wp;
 }
 
 static void StockAnalyzer_Import(string strFilePath, Worksheet wks) {
@@ -194,7 +285,7 @@ static void StockAnalyzer_Import(string strFilePath, Worksheet wks) {
 		if(0 == wks.ImportASCII(strFilePath, ai)) {
 			wks.LT_execute("wks.col1.SetFormat(4, 22, yyyy-MM-dd);");
 			wks.Sort();
-			wks.LT_execute("run -p au;");
+			//wks.LT_execute("run -p au;");
 		};
 	};
 }
@@ -232,8 +323,36 @@ void StockAnalyzer_MainProcess(int nUID) {
 	StockAnalyzer_MoneyFlow_Main(wksIndicator, wksData, vsIndex);
 	
 	// Aroon
-	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 3);	
 	StockAnalyzer_Aroon_Main(wksIndicator, wksData, vsIndex, trIndicators.Aroon);
+	
+	// ATR
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_ATR_Main(wksIndicator, wksData, vsIndex, trIndicators.ATR);
+	
+	// ADX
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 3);
+	StockAnalyzer_ADX_Main(wksIndicator, wksData, vsIndex, trIndicators.ADX);
+	
+	// Band Width
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_BBWidth_Main(wksIndicator, wksOverLay, vsIndex, trOverlays.BB);
+	
+	// %B
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_PerB_Main(wksIndicator, wksOverLay, vsIndex, trOverlays.BB);
+	
+	// CCI
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 3);	
+	StockAnalyzer_CCI_Main(wksIndicator, wksData, vsIndex, trIndicators.CCI);
+	
+	// ROC
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 4);	
+	StockAnalyzer_ROC_Main(wksIndicator, wksData, vsIndex, trIndicators.ROC);
+	
+	// COPP
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_COPP_Main(wksIndicator, wksData, vsIndex, trIndicators.COPP);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -329,11 +448,14 @@ static vector<double> StockAnalyzer_EMA(vector<double> vsClose, int nWin) {
 
 static void StockAnalyzer_Bollinger_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> vsIndex, Tree tr) {
 	Dataset dsClose(wksSource, 6);	// adj close
+	
 	Column ccUpper(wksTarget, vsIndex[0]);			Dataset dsUpper(ccUpper);
 	Column ccLower(wksTarget, vsIndex[1]);			Dataset dsLower(ccLower);
 	Column ccCenter(wksTarget, vsIndex[2]);		Dataset dsCenter(ccCenter);
+	
 	int nPeriod = tr.GetNode("Period").nVal;
 	int nWidth = tr.GetNode("Band").nVal;
+	
 	StockAnalyzer_Bollinger(dsClose, nPeriod, nWidth, dsCenter, dsUpper, dsLower);
 	ccUpper.SetComments("Bollinger(" + ftoa(nPeriod) + ", " + ftoa(nWidth) + ")");
 }
@@ -425,15 +547,22 @@ static vector<double> StockAnalyzer_CMF(vector<double> vsMoneyFlowVolume, vector
 
 static void StockAnalyzer_Aroon_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
 	Dataset dsClose(wksSource, 6);	// adj close
+	
 	int nWin = tr.GetNode("Period").nVal;
-	Column ccUp(wksTarget, nIndex[0]);		Dataset dsUp(ccUp);
-	Column ccDown(wksTarget, nIndex[1]);	Dataset dsDown(ccDown);
-	ccUp.SetLongName("Aroon");
-	ccDown.SetLongName("Aroon");
-	ccUp.SetComments("Arron Up");
-	ccDown.SetComments("Arron Down");
+	
+	Dataset dsUp(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Aroon", "Arron Up"));
+	Dataset dsDown(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Aroon", "Arron Down"));
+	Dataset dsOscillator(StockAnalyzer_SetColumn(wksTarget, nIndex[2], "Aroon", "Aroon(" + ftoa(nWin) + ") Oscillator"));
+	
+	//Column ccUp(wksTarget, nIndex[0]);				Dataset dsUp(ccUp);
+	//Column ccDown(wksTarget, nIndex[1]);			Dataset dsDown(ccDown);
+	//Column ccOscillator(wksTarget, nIndex[2]); 	Dataset dsOscillator(ccOscillator);
+	//ccUp.SetLongName("Aroon");								ccUp.SetComments("Arron Up");
+	//ccDown.SetLongName("Aroon");							ccDown.SetComments("Arron Down");
+	//ccOscillator.SetLongName("Aroon");	ccOscillator.SetComments("Aroon(" + ftoa(nWin) + ") Oscillator");
 	
 	StockAnalyzer_Aroon(dsClose, dsUp, dsDown, nWin);
+	dsOscillator = dsUp - dsDown;
 }
 
 static void StockAnalyzer_Aroon(vector<double> vsClose, vector<double>& vsUp, vector<double>& vsDown, int nWin = 25) {
@@ -455,11 +584,322 @@ static void StockAnalyzer_Aroon(vector<double> vsClose, vector<double>& vsUp, ve
 	};
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Average True Range (ATR)
+
+static void StockAnalyzer_ATR_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsHigh(wksSource, 2);		// 
+	Dataset dsLow(wksSource, 3);		// 
+	Dataset dsClose(wksSource, 4);	// 
+	
+	int nMethodTR = tr.GetNode("Method").nVal;
+	int nPeriod = tr.GetNode("Period").nVal;
+	
+	//Dataset dsTR(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "True Range", StockAnalyzer_Legend("TR", nPeriod)));
+	Dataset dsATR(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Average True Range", StockAnalyzer_Legend("ATR", nPeriod)));
+	
+	//dsTR = StockAnalyzer_TR(dsClose, dsHigh, dsLow, nMethodTR);
+	dsATR = StockAnalyzer_ATR(dsClose, dsHigh, dsLow, nPeriod, nMethodTR);
+}
+
+static vector<double> StockAnalyzer_ATR(vector<double> vsClose, vector<double> vsHigh, vector<double> vsLow, int nPeriod, int nMode = 0) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsATR(nSize);
+	vector<double> vsTR(nSize);
+	
+	vsTR = StockAnalyzer_TR(vsClose, vsHigh, vsLow, nMode);
+	
+	// Starting point
+	vector<double> vsSub(nPeriod);
+	vsTR.GetSubVector(vsSub, 0, nPeriod-1);
+	double dMean;		ocmath_basic_summary_stats(nPeriod, vsSub, NULL, &dMean);
+	
+	// Calculation
+	for (int ii = 0; ii < nSize; ii++) {
+		if (ii < nPeriod-1) {
+			vsATR[ii] = NANUM;
+		}
+		else if (ii == nPeriod-1) {
+			vsATR[ii] = dMean;
+		}
+		else {
+			vsATR[ii] = ((vsATR[ii-1] * (nPeriod - 1)) + vsTR[ii]) / nPeriod;
+		}
+	};
+	
+	return vsATR;
+}
+
+static vector<double> StockAnalyzer_TR(vector<double> vsClose, vector<double> vsHigh, vector<double> vsLow, int nMode = 0) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsTR(nSize);
+	
+	switch (nMode) {
+	case 0:
+		vsTR = vsHigh - vsLow;
+		break;
+	case 1:
+		vsTR[0] = NANUM;
+		for (int ii = 1; ii < nSize; ii++) {
+			vsTR[ii] = abs(vsHigh[ii] - vsClose[ii-1]);
+		};
+		break;
+	case 2:
+		vsTR[0] = NANUM;
+		for (int ii = 1; ii < nSize; ii++) {
+			vsTR[ii] = abs(vsLow[ii] - vsClose[ii-1]);
+		};
+		break;
+	};
+	
+	return vsTR;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Average Directional Index (ADX)
+
+static void StockAnalyzer_ADX_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsHigh(wksSource, 2);		// 
+	Dataset dsLow(wksSource, 3);		// 
+	Dataset dsClose(wksSource, 4);	// 
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	
+	Dataset dsADX(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Average Directional Index", StockAnalyzer_Legend("ADX", nPeriod)));
+	Dataset dsDIp(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Average Directional Index", "+DI"));
+	Dataset dsDIn(StockAnalyzer_SetColumn(wksTarget, nIndex[2], "Average Directional Index", "-DI"));
+	
+	dsADX = StockAnalyzer_ADX(dsHigh, dsLow, dsClose, dsDIp, dsDIn, nPeriod);
+	
+	
+}
+
+static vector<double> StockAnalyzer_ADX(vector<double> vsHigh, vector<double> vsLow, vector<double> vsClose, vector<double>& vsDIp, vector<double>& vsDIn, int nWin = 14) {
+	vector<double> vsTR;
+	vector<double> vsDMp, vsDMn;
+	vector<double> vsADX;
+	
+	vsTR = StockAnalyzer_TR(vsClose, vsHigh, vsLow);
+	StockAnalyzer_DM(vsHigh, vsLow, vsDMp, vsDMn);
+	vsTR = StockAnalyzer_EMA(vsTR, nWin);
+	vsDMp = StockAnalyzer_EMA(vsDMp, nWin);
+	vsDMn = StockAnalyzer_EMA(vsDMn, nWin);
+	vsDIp = vsDMp / vsTR * 100;
+	vsDIn = vsDMn / vsTR * 100;
+	
+	vsADX = abs(vsDIp - vsDIn) / (vsDIp + vsDIn) * 100;
+	vsADX = StockAnalyzer_EMA(vsADX, nWin);
+	
+	return vsADX;
+}
+
+static void StockAnalyzer_DM(vector<double> vsHigh, vector<double> vsLow, vector<double>& vsDMp, vector<double>& vsDMn) {
+	int nSize = vsHigh.GetSize();
+	vsDMp.SetSize(nSize);
+	vsDMn.SetSize(nSize);
+	for (int ii = 1; ii < nSize; ii++) {
+		double dDIp = vsHigh[ii] - vsHigh[ii-1];
+		double dDIn = vsLow[ii-1] - vsLow[ii];
+		if (dDIp >= dDIn) {
+			vsDMp[ii] = dDIp > 0? dDIp:0;
+			vsDMn[ii] = 0;
+		}
+		else {
+			vsDMp[ii] = 0;
+			vsDMn[ii] = dDIn > 0? dDIn:0;
+		}
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Bollinger BandWidth
+
+static void StockAnalyzer_BBWidth_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsUpper(wksSource, 7);		
+	Dataset dsLower(wksSource, 8);	
+	Dataset dsCenter(wksSource, 9);	
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	int nWidth = tr.GetNode("Band").nVal;
+	
+	Dataset dsBBW(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Bollinger BandWidth", StockAnalyzer_Legend("BB Width", nPeriod, nWidth)));
+	
+	dsBBW = StockAnalyzer_BBWidth(dsUpper, dsLower, dsCenter);
+}
+
+static vector<double> StockAnalyzer_BBWidth(vector<double> vsUpper, vector<double> vsLower, vector<double> vsMiddle) {
+	return (vsUpper - vsLower) / vsMiddle * 100;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// %B Indicator
+
+static void StockAnalyzer_PerB_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsUpper(wksSource, 7);		
+	Dataset dsLower(wksSource, 8);	
+	Dataset dsClose(StockAnalyzer_GetSourceColumn(wksSource, 4));	// Close value
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	int nWidth = tr.GetNode("Band").nVal;
+	
+	Dataset dsB(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "%B Indicator", StockAnalyzer_Legend("%B", nPeriod, nWidth)));
+	dsB = StockAnalyzer_PercentageB(dsUpper, dsLower, dsClose);
+}
+
+static vector<double> StockAnalyzer_PercentageB(vector<double> vsUpper, vector<double> vsLower, vector<double> vsPrice) {
+	return (vsPrice - vsLower) / (vsUpper - vsLower);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Commodity Channel Index (CCI)
+
+static void StockAnalyzer_CCI_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsHigh(wksSource, 2);		// 
+	Dataset dsLow(wksSource, 3);		// 
+	Dataset dsClose(wksSource, 4);	// 
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	
+	Dataset ds100p(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Commodity Channel Index", ""));
+	Dataset dsCCI(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Commodity Channel Index", StockAnalyzer_Legend("CCI", nPeriod)));
+	Dataset ds100n(StockAnalyzer_SetColumn(wksTarget, nIndex[2], "Commodity Channel Index", ""));
+	
+	dsCCI = StockAnalyzer_CCI(dsHigh, dsLow, dsClose, nPeriod);
+	int nSize = dsCCI.GetSize();
+	ds100p.SetSize(nSize);		ds100p = 100;
+	ds100n.SetSize(nSize);		ds100n = -100;
+}
+
+static vector<double> StockAnalyzer_CCI(vector<double> vsHigh, vector<double> vsLow, vector<double> vsClose, int nWin) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsCCI(nSize);
+	vector<double> vsTP(nSize), vsTPMA(nSize), vsMD(nSize);
+	
+	double dConstant = 0.015;
+	vsTP = (vsHigh + vsLow + vsClose) / 3;
+	vsTPMA = StockAnalyzer_SMA(vsTP, 20);
+	
+	// Calculate Mean Deviation
+	vsMD = StockAnalyzer_Moving_Mean_Deviation(vsTP, vsTPMA, 20);
+	
+	vsCCI = (vsTP - vsTPMA) / (dConstant * vsMD);
+	
+	return vsCCI;
+}
+
+static vector<double> StockAnalyzer_Moving_Mean_Deviation(vector<double> vsValue, vector<double> vsSMA, int nWin = 20) {
+	int nSize = vsValue.GetSize();
+	vector<double> vsMD(nSize);
+	for(int ii = nWin - 1; ii < nSize; ii++) {
+		vector<double> vsSub;
+		vsValue.GetSubVector(vsSub, ii-nWin+1, ii);
+		double dMean = vsSMA[ii];
+		vsSub -= dMean;
+		vsSub.Abs();
+		double dSum;
+		vsSub.Sum(dSum);
+		vsMD[ii] = dSum / nWin;
+	};
+	return vsMD;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Rate of Change (ROC)
+
+static void StockAnalyzer_ROC_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	for (int ii = 0; ii < 4; ii++) {
+		int nWin = tree_get_node(tr, ii).nVal;
+		Dataset dsROC(StockAnalyzer_SetColumn(wksTarget, nIndex[ii], "Rate of Change", StockAnalyzer_Legend("ROC", nWin)));
+		
+		if ((is_missing_value(nWin)) || (nWin <= 0)) {
+			continue;
+		}
+		
+		dsROC = StockAnalyzer_ROC(dsClose, nWin);
+	}
+}
+
+static vector StockAnalyzer_ROC(vector<double> vsClose, int nPeriod) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsROC(nSize);	vsROC = NANUM;
+	for (int ii = nPeriod; ii < nSize; ii++) {
+		vsROC[ii] = (vsClose[ii] - vsClose[ii - nPeriod]) / vsClose[ii - nPeriod] * 100;
+	}
+	return vsROC;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Coppock Curve
+
+static void StockAnalyzer_COPP_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nPeriod1 = tr.GetNode("Period1").nVal;		// 1st ROC
+	int nPeriod2 = tr.GetNode("Period2").nVal;		// 2nd ROC
+	int nPeriod3 = tr.GetNode("Period3").nVal;		// WMA
+	
+	Dataset dsCOPP(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Coppock Curve", StockAnalyzer_Legend("COPP", nPeriod1, nPeriod2, nPeriod3)));
+	dsCOPP = StockAnalyzer_Coppock(dsClose, nPeriod1, nPeriod2, nPeriod3);
+	
+}
+
+static vector<double> StockAnalyzer_Coppock(vector<double> vsClose, int nPeriod1, int nPeriod2, int nPeriod3) {
+	// Coppock Curve = period3 WMA of (period1 RoC + perod2 RoC)
+	vector<double> vsRoC1, vsRoC2;
+	vector<double> vsWMA;
+	vector<double> vsCoppock;		vsCoppock = NANUM;
+	if (is_missing_value(nPeriod1) || is_missing_value(nPeriod2) || is_missing_value(nPeriod3)) {
+		return vsCoppock;
+	};
+	vector<int> vsCheck;
+	vsCheck.Add(nPeriod1);
+	vsCheck.Add(nPeriod2);
+	vsCheck.Add(nPeriod3);
+	if (vsClose.GetSize() <= min(vsCheck)) {
+		return vsCoppock;
+	};
+	
+	vsRoC1 = StockAnalyzer_ROC(vsClose, nPeriod1);
+	vsRoC2 = StockAnalyzer_ROC(vsClose, nPeriod2);
+	
+	vsCoppock = StockAnalyzer_WMA(vsRoC1 + vsRoC2, nPeriod3);
+	
+	return vsCoppock;
+}
+
+static vector<double> StockAnalyzer_WMA(vector<double> vsClose, int nPeriod) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsWMA(nSize);		vsWMA = NANUM;
+	
+	vector<double> vsMultiplier;			vsMultiplier.Data(1, nPeriod, 1);
+	double dTotal;								vsMultiplier.Sum(dTotal);
+	for (int ii = nPeriod-1; ii < nSize; ii++) {
+		vector<double> vsSub;
+		vsClose.GetSubVector(vsSub, ii - nPeriod + 1, ii);
+		vsSub = vsSub * vsMultiplier;
+		double dSum;	vsSub.Sum(dSum);
+		vsWMA[ii] = dSum/dTotal;
+	}
+	
+	return vsWMA;
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Misc
 
-vector<int> StockAnalyzer_Offset(int &nIndex, int nSize) {
+static Column StockAnalyzer_GetSourceColumn(Worksheet wks, int nIndex) {
+	WorksheetPage wp;
+	wp = wks.GetPage();
+	Worksheet wksSource = wp.Layers("Data");
+	Column cc(wksSource, nIndex);
+	return cc;
+}
+
+static vector<int> StockAnalyzer_Offset(int &nIndex, int nSize) {
 	vector<int> vs(nSize);
 	for (int ii = 0; ii < nSize; ii++, nIndex++) {
 		vs[ii] = nIndex + 1;
@@ -479,6 +919,29 @@ static string StockAnalyzer_GetTemplatePath (string strName){
 	string strFilePath = __FILE__;
 	strFilePath = GetFilePath(strFilePath) + strName;
 	return strFilePath;
+}
+
+static Column StockAnalyzer_SetColumn(Worksheet wks, int nIndex, string strLongName, string strComments) {
+	Column cc(wks, nIndex);
+	cc.SetLongName(strLongName);
+	cc.SetComments(strComments);
+	return cc;
+}
+
+static string StockAnalyzer_Legend(string strName, int nParam1, int nParam2 = -1, int nParam3 = -1) {
+	string str = strName + "(" + ftoa(nParam1);
+	
+	if (nParam2 != -1) {
+		str = str + ", " + ftoa(nParam2);
+	};
+	
+	if (nParam3 != -1) {
+		str = str + ", " + ftoa(nParam3);
+	};
+	
+	str = str + ")";
+	
+	return str;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
