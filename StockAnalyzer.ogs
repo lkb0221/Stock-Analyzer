@@ -1,3 +1,7 @@
 [main]
-	StockAnalyzer -d;
+	//StockAnalyzer -d;
+	int err = run.loadoc("%@AStock Analyzer\StockAnalyzer.c");
+	if (err == 0) {
+		StockAnalyzer_Main();
+	}
 
