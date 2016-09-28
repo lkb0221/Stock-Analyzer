@@ -88,6 +88,7 @@ Tree StockAnalyzer_GUI() {
 	GETN_END_BRANCH(Overlays)
 	
 	GETN_BEGIN_BRANCH(Indicators, "Technical Indicators")
+		
 		GETN_BEGIN_BRANCH(ADL, "Accumulation Distribution")
 		GETN_END_BRANCH(ADL)
 		
@@ -119,16 +120,56 @@ Tree StockAnalyzer_GUI() {
 		
 		GETN_BEGIN_BRANCH(COPP, "Coppock Curve")
 			GETN_NUM(Period1, "1st ROC Period", 14)					GETN_OPTION_NUM_FORMAT( ".0" )
-			GETN_NUM(Period2, "2nd ROC Period", 11)				GETN_OPTION_NUM_FORMAT( ".0" )
-			GETN_NUM(Period3, "WMA Period", 10)				GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "2nd ROC Period", 11)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period3, "WMA Period", 10)						GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(COPP)
+		
+		GETN_BEGIN_BRANCH(CMF, "Chaikin Money Flow (CMF)")
+		GETN_END_BRANCH(CMF)
+		
+		GETN_BEGIN_BRANCH(ChiOsc, "Chaikin Oscillator")
+			GETN_NUM(Period1, "1st ADL EMA Window", 3)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "2nd ADL EMA Window", 10)				GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(ChiOsc)
+		
+		GETN_BEGIN_BRANCH(PMO, "DecisionPoint Price Momentum Oscillator (PMO)")
+			GETN_NUM(Period1, "1st Time Period", 35)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "2nd Time Period", 20)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(SignalPeriod, "Signal EMA Period", 10)		GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(PMO)
+		
+		GETN_BEGIN_BRANCH(DPO, "Detrended Price Oscillator (DPO)")
+			GETN_NUM(Period, "Window", 20)					GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(DPO)
+		
+		GETN_BEGIN_BRANCH(MACD, "Moving Average Convergence/Divergence Oscillator (MACD)")
+			GETN_NUM(WinEMA1, "EMA Window 1", 12)		GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(WinEMA2, "EMA Window 2", 26)		GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(SignalPeriod, "Signal Period", 9)			GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(MACD)
+		
+		GETN_BEGIN_BRANCH(McClellan, "McClellan Oscillator")
+			GETN_NUM(Period1, "Period Window 1", 19)		GETN_CURRENT_SUBNODE.Enable = false;
+			GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "Period Window 2", 39)		GETN_CURRENT_SUBNODE.Enable = false;
+			GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(McClellan)
+		
+		GETN_BEGIN_BRANCH(StochasticOscillator, "Stochastic Oscillator")
+			GETN_NUM(PeriodK, "K Period", 14)	GETN_OPTION_NUM_FORMAT( ".0" )		// %K
+			GETN_NUM(PeriodD, "D Period", 3)	GETN_OPTION_NUM_FORMAT( ".0" )		// %D
+			//GETN_CHECK(Slow, "Include Slow Stochastic Oscillator", false)
+			//GETN_CHECK(Full, "Include Full Stochastic Oscillator", false)
+		GETN_END_BRANCH(StochasticOscillator)
 		
 		GETN_BEGIN_BRANCH(ROC, "Rate of Change (ROC)")
 			GETN_NUM(Period1, "1st Period", 250)					GETN_OPTION_NUM_FORMAT( ".0" )
-			GETN_NUM(Period2, "2nd Period", 125)				GETN_OPTION_NUM_FORMAT( ".0" )
-			GETN_NUM(Period3, "3rd Period", 63)				GETN_OPTION_NUM_FORMAT( ".0" )
-			GETN_NUM(Period4, "4th Period", 21)				GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "2nd Period", 125)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period3, "3rd Period", 63)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period4, "4th Period", 21)						GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(ROC)
+		
+		
 		
 	GETN_END_BRANCH(Indicators)
 	
@@ -353,6 +394,18 @@ void StockAnalyzer_MainProcess(int nUID) {
 	// COPP
 	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
 	StockAnalyzer_COPP_Main(wksIndicator, wksData, vsIndex, trIndicators.COPP);
+	
+	// ChiOsc
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_ChiOsc_Main(wksIndicator, wksIndicator, vsIndex, trIndicators.ChiOsc);
+	
+	// PMO
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
+	StockAnalyzer_PMO_Main(wksIndicator, wksData, vsIndex, trIndicators.PMO);
+	
+	// DPO
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_DPO_Main(wksIndicator, wksData, vsIndex, trIndicators.DPO);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -886,6 +939,106 @@ static vector<double> StockAnalyzer_WMA(vector<double> vsClose, int nPeriod) {
 	return vsWMA;
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//Chaikin Oscillator
+
+static void StockAnalyzer_ChiOsc_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsADL(wksSource, 1);		// ADL column that been calculated before
+	
+	int nPeriod1 = tr.GetNode("Period1").nVal;		// 1st EMA
+	int nPeriod2 = tr.GetNode("Period2").nVal;		// 2nd EMA
+	
+	Dataset dsChiOsc(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Chaikin Oscillator", StockAnalyzer_Legend("ChiOsc", nPeriod1, nPeriod2)));
+	dsChiOsc = StockAnalyzer_ChiOsc(dsADL, nPeriod1, nPeriod2);
+}
+
+static vector<double> StockAnalyzer_ChiOsc(vector<double> vsADL, int nPeriod1 = 3, int nPeriod2 = 10) {
+	return StockAnalyzer_EMA(vsADL, nPeriod1) - StockAnalyzer_EMA(vsADL, nPeriod2);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//DecisionPoint Price Momentum Oscillator (PMO)
+
+static void StockAnalyzer_PMO_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nPeriod1 = tr.GetNode("Period1").nVal;				// 1st EMA
+	int nPeriod2 = tr.GetNode("Period2").nVal;				// 2nd EMA
+	int nPeriod3 = tr.GetNode("SignalPeriod").nVal;		// Signal window
+	
+	Dataset dsPMO(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "DecisionPoint Price Momentum Oscillator", StockAnalyzer_Legend("PMO", nPeriod1, nPeriod2, nPeriod3)));
+	Dataset dsPMOS(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "DecisionPoint Price Momentum Oscillator", ""));
+	
+	dsPMO = StockAnalyzer_PMO(dsClose, dsPMOS, nPeriod1, nPeriod2, nPeriod3);
+}
+
+static vector<double> StockAnalyzer_PMO(vector<double> vsPrice, vector<double> &vsSignal, int nPeriod1 = 35, int nPeriod2 = 20, int nPeriod3 = 10) {
+	vector<double> vsPMO;
+	double dSmoothFatctor1 = 2 / (double)nPeriod1;
+	double dSmoothFatctor2 = 2 / (double)nPeriod2;
+	
+	vector<double> vsROC_1, vsSmooth1;
+	vsROC_1 = StockAnalyzer_ROC(vsPrice, 1);
+	vsSmooth1 = StockAnalyzer_PMO_SmoothEMA(vsROC_1, nPeriod1, dSmoothFatctor1);
+	vsPMO = StockAnalyzer_PMO_SmoothEMA(vsSmooth1 * 10, nPeriod2, dSmoothFatctor2);
+	vsSignal = StockAnalyzer_EMA(vsPMO, nPeriod3);
+	
+	return vsPMO;
+}
+
+static vector<double> StockAnalyzer_PMO_SmoothEMA(vector<double> vs, int nPeriod, double dSmoothFatctor) {
+	int nSize = vs.GetSize();
+	vector<double> vsSmooth(nSize);
+	
+	bool bStart = false;
+	double dSum;
+	int nCount;
+	for (int ii = 0; ii < nSize; ii++) {
+		if (is_missing_value(vs[ii])) {
+			vsSmooth[ii] = NANUM;
+		}
+		else if (!bStart) {
+			if (nCount == nPeriod - 1) {
+				vsSmooth[ii] = (dSum + vs[ii]) / nPeriod;
+				bStart = true;
+			}
+			else {
+				dSum += vs[ii];
+				vsSmooth[ii] = NANUM;
+				nCount++;
+			}
+		}
+		else {
+			vsSmooth[ii] = (vs[ii] - vsSmooth[ii-1]) * dSmoothFatctor + vsSmooth[ii-1];
+		}
+	};
+	return vsSmooth;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//Detrended Price Oscillator (DPO)
+
+static void StockAnalyzer_DPO_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nPeriod = tr.GetNode("Period").nVal;				
+	
+	Dataset dsDPO(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Detrended Price Oscillator", StockAnalyzer_Legend("DPO", nPeriod)));
+	
+}
+
+static vector<double> StockAnalyzer_DPO(vector<double> vsPrice, int nPeriod) {
+	int nOffset = 2 * nPeriod + 1;
+	
+	vector<double> vsMA, vsDPO;
+	vsMA = StockAnalyzer_SMA(vsPrice, nPeriod);		// Get N-period SMA
+	
+	
+	return vsDPO;
+}
+
+
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -948,84 +1101,96 @@ static string StockAnalyzer_Legend(string strName, int nParam1, int nParam2 = -1
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Graph Control
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Overlay
+
 void SA_OverLay_Type(int nType) {
-	// nType = 1  ==> SMA
-	// nType = 2  ==> EMA
-	// nType = 3  ==> Bollinger
-	// nType = 4  ==> Chandelier Exit
+	string strLegendName;
+	vector<int> vsIndex;	
+	SA_OverLayList(nType, vsIndex, strLegendName);
 	
 	GraphLayer gl = Project.ActiveLayer().GetPage().Layers(0);		// Get 1st layer
 	
-	switch (nType) {
-	case 1:		// SMA
-		gl.DataPlots(0).Show = true;
-		gl.DataPlots(1).Show = true;
-		gl.DataPlots(2).Show = true;
-		gl.DataPlots(3).Show = true;
-		gl.DataPlots(4).Show = true;
-		gl.DataPlots(5).Show = false;
-		gl.DataPlots(6).Show = false;
-		gl.DataPlots(7).Show = false;
-		gl.DataPlots(8).Show = false;
-		gl.DataPlots(9).Show = false;
-		gl.DataPlots(10).Show = false;
-		gl.DataPlots(11).Show = false;
-		gl.GraphObjects("Legend_SMA").Show = true;
-		gl.GraphObjects("Legend_EMA").Show = false;
-		gl.GraphObjects("Legend_Bollinger").Show = false;
-		break;
-	case 2:		// EMA
-		gl.DataPlots(0).Show = true;
-		gl.DataPlots(1).Show = false;
-		gl.DataPlots(2).Show = false;
-		gl.DataPlots(3).Show = false;
-		gl.DataPlots(4).Show = false;
-		gl.DataPlots(5).Show = true;
-		gl.DataPlots(6).Show = true;
-		gl.DataPlots(7).Show = true;
-		gl.DataPlots(8).Show = true;
-		gl.DataPlots(9).Show = false;
-		gl.DataPlots(10).Show = false;
-		gl.DataPlots(11).Show = false;
-		gl.GraphObjects("Legend_SMA").Show = false;
-		gl.GraphObjects("Legend_EMA").Show = true;
-		gl.GraphObjects("Legend_Bollinger").Show = false;
-		break;
-	case 3:	// Bollinger
-		gl.DataPlots(0).Show = true;
-		gl.DataPlots(1).Show = false;
-		gl.DataPlots(2).Show = false;
-		gl.DataPlots(3).Show = false;
-		gl.DataPlots(4).Show = false;
-		gl.DataPlots(5).Show = false;
-		gl.DataPlots(6).Show = false;
-		gl.DataPlots(7).Show = false;
-		gl.DataPlots(8).Show = false;
-		gl.DataPlots(9).Show = true;
-		gl.DataPlots(10).Show = true;
-		gl.DataPlots(11).Show = true;
-		gl.GraphObjects("Legend_SMA").Show = false;
-		gl.GraphObjects("Legend_EMA").Show = false;
-		gl.GraphObjects("Legend_Bollinger").Show = true;
-		break;
-	default:		// default is SMA
-		gl.DataPlots(0).Show = true;
-		gl.DataPlots(1).Show = true;
-		gl.DataPlots(2).Show = true;
-		gl.DataPlots(3).Show = true;
-		gl.DataPlots(4).Show = true;
-		gl.DataPlots(5).Show = false;
-		gl.DataPlots(6).Show = false;
-		gl.DataPlots(7).Show = false;
-		gl.DataPlots(8).Show = false;
-		gl.DataPlots(9).Show = false;
-		gl.DataPlots(10).Show = false;
-		gl.DataPlots(11).Show = false;
-		gl.GraphObjects("Legend_SMA").Show = true;
-		gl.GraphObjects("Legend_EMA").Show = false;
-		gl.GraphObjects("Legend_Bollinger").Show = false;
-		break;
-	};
+	SA_OverLay_ShowHide(gl, vsIndex, strLegendName);
 	
 	gl.GetPage().Refresh();
 }
+
+static void SA_OverLay_ShowHide(GraphLayer gl, vector<int> vsIndex, string strLegendName) {
+	vector<uint> vecIndex;
+	
+	foreach (DataPlot dp in gl.DataPlots) {
+		dp.Show = (vsIndex.Find(vecIndex, dp.GetIndex()) >= 1);
+	};
+	
+	foreach (GraphObject grobj in gl.GraphObjects) {
+		string strName = grobj.GetName();
+		grobj.Show = (strncmp(strName, "Legend", 6) != 0) || (strcmp(strName, strLegendName) == 0);
+	};
+}
+
+static bool SA_OverLayList(int nType, vector<int> &vsIndex, string &strLegendName) {
+	switch (nType) {
+	case 1:	// SMA
+		vector<int> vsTemp = {0, 1, 2, 3};
+		vsIndex = vsTemp;
+		strLegendName = "LegendSMA";
+		break;
+	case 2:	// EMA
+		vector<int> vsTemp = {0, 4, 5, 6};
+		vsIndex = vsTemp;
+		strLegendName = "LegendEMA";
+		break;
+	case 3:	// BB
+		vector<int> vsTemp = {0, 7, 8, 9};
+		vsIndex = vsTemp;
+		strLegendName = "LegendBB";
+		break;
+	default:
+		vector<int> vsTemp = {0, 1, 2, 3};
+		vsIndex = vsTemp;
+		strLegendName = "LegendSMA";
+		break;
+	}
+	return true;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Indicator
+
+void SA_Indicator_Type(int nType) {
+	vector<string> saList;	saList = SA_IndicatorList();
+	GraphPage gp = Project.ActiveLayer().GetPage();
+	SA_Indicator_ShowHide(gp, saList[nType-1]);
+	gp.Layers(saList[nType-1]).Rescale();
+}
+
+static void SA_Indicator_ShowHide(GraphPage gp, string strLayerName) {
+	foreach(GraphLayer gl in gp.Layers) {
+		string strName = gl.GetName();
+		bool bHit = (strcmp(strName, "Stock") == 0) || (strcmp(strName, "Volume") == 0) || (strcmp(strName, strLayerName) == 0);
+		gl.Show = bHit;
+	};
+}
+
+static vector<string> SA_IndicatorList() {
+	vector<string> sa;
+	
+	sa.Add("Accumulation Distribution Line");
+	sa.Add("Aroon");
+	sa.Add("Aroon Oscillator");
+	sa.Add("Average True Range");
+	sa.Add("Average Directional Index");
+	sa.Add("Bollinger BandWidth");
+	sa.Add("B Indicator");
+	sa.Add("Commodity Channel Index");
+	sa.Add("Coppock Curve");
+	sa.Add("Chaikin Money Flow");
+	sa.Add("Chaikin Oscillator");
+	sa.Add("PMO");
+	sa.Add("");
+	sa.Add("Rate of Change");
+	
+	return sa;
+}
+
