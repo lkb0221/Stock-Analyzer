@@ -142,6 +142,10 @@ Tree StockAnalyzer_GUI() {
 			GETN_NUM(Period, "Window", 20)					GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(DPO)
 		
+		GETN_BEGIN_BRANCH(EMV, "Ease of Movement")
+			GETN_NUM(Period, "Period", 14)						GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(EMV)
+		
 		GETN_BEGIN_BRANCH(MACD, "Moving Average Convergence/Divergence Oscillator (MACD)")
 			GETN_NUM(WinEMA1, "EMA Window 1", 12)		GETN_OPTION_NUM_FORMAT( ".0" )
 			GETN_NUM(WinEMA2, "EMA Window 2", 26)		GETN_OPTION_NUM_FORMAT( ".0" )
@@ -406,6 +410,10 @@ void StockAnalyzer_MainProcess(int nUID) {
 	// DPO
 	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
 	StockAnalyzer_DPO_Main(wksIndicator, wksData, vsIndex, trIndicators.DPO);
+	
+	// EMV
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_EMV_Main(wksIndicator, wksData, vsIndex, trIndicators.EMV);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1024,18 +1032,50 @@ static void StockAnalyzer_DPO_Main(Worksheet wksTarget, Worksheet wksSource, vec
 	int nPeriod = tr.GetNode("Period").nVal;				
 	
 	Dataset dsDPO(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Detrended Price Oscillator", StockAnalyzer_Legend("DPO", nPeriod)));
-	
+	dsDPO = StockAnalyzer_DPO(dsClose, nPeriod);
 }
 
 static vector<double> StockAnalyzer_DPO(vector<double> vsPrice, int nPeriod) {
-	int nOffset = 2 * nPeriod + 1;
+	int nOffset = nPeriod / 2 + 1;
 	
 	vector<double> vsMA, vsDPO;
 	vsMA = StockAnalyzer_SMA(vsPrice, nPeriod);		// Get N-period SMA
-	
+	vector<int> vsOffsetRemove;	vsOffsetRemove.Data(0, nOffset-1, 1);
+	vsMA.RemoveAt(vsOffsetRemove);	vsPrice.SetSize(vsMA.GetSize());
+	vsDPO = vsPrice - vsMA;
 	
 	return vsDPO;
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//Ease of Movement (EMV)
+
+static void StockAnalyzer_EMV_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsHigh(wksSource, 2);		// 
+	Dataset dsLow(wksSource, 3);		// 
+	Dataset dsVolume(wksSource, 5);
+	
+	int nPeriod = tr.GetNode("Period").nVal;			
+	
+	Dataset dsEMV(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Ease of Movement", StockAnalyzer_Legend("EMV", nPeriod)));
+	dsEMV = StockAnalyzer_EMV(dsHigh, dsLow, dsVolume, nPeriod);
+}
+
+static vector<double> StockAnalyzer_EMV(vector<double> vsHigh, vector<double> vsLow, vector<double> vsVol, int nPeriod) {
+	int nSize = vsHigh.GetSize();
+	vector<double> vsEMV(nSize);
+	
+	// 1-Period EMV = ((H + L)/2 - (Prior H + Prior L)/2) / ((V/100,000,000)/(H - L))
+	for (int ii = 1; ii < nSize; ii++) {					
+		vsEMV[ii] = ((vsHigh[ii] + vsLow[ii]) / 2 - (vsHigh[ii-1] + vsLow[ii-1]) / 2) / ((vsVol[ii] / 100000000) / (vsHigh[ii] - vsLow[ii]));
+	};
+	
+	vsEMV = StockAnalyzer_EMA(vsEMV, nPeriod);
+	
+	return vsEMV;
+}
+
+
 
 
 
@@ -1188,6 +1228,7 @@ static vector<string> SA_IndicatorList() {
 	sa.Add("Chaikin Money Flow");
 	sa.Add("Chaikin Oscillator");
 	sa.Add("PMO");
+	sa.Add("DPO");
 	sa.Add("");
 	sa.Add("Rate of Change");
 	
