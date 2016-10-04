@@ -20,16 +20,163 @@
 // system header file.
 #include <Origin.h>
 #include <GetNBox.h>
-#include <..\OriginLab\OCHttpUtils.h>
+#include <../OriginLab/OCHttpUtils.h>
+#include <../OriginLab/DialogEx.h>
+#include <../OriginLab/HTMLDlg.h>
+#include <../OriginLab/GraphPageControl.h>
 ////////////////////////////////////////////////////////////////////////////////////
+#define STR_HTML_NAME "Stock Analyzer"
 #define STR_YAHOO_API_BASE "http://ichart.finance.yahoo.com/table.csv?s=%s&a=%d&b=%d&c=%d&d=%d&e=%d&f=%d&g=d&ignore=.csv"
 #define STR_YAHOO_API_ALL "http://ichart.finance.yahoo.com/table.csv?s=%s&g=d&ignore=.csv"
 #define STR_FILE_NAME_DOWNLOAD "Table.csv"
 #define STR_TEMPLATE_NAME_WBK "Stock Analyzer.ogw"
-
+#define GRAPH_CONTROL_ID 200
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
+
+class StockAnalyzerDlg: public HTMLDlg {
+	public:
+		StockAnalyzerDlg() {}
+		~StockAnalyzerDlg() {}
+		string GetInitURL();
+		string GetDialogTitle();
+		//void SetGraphTarget(string strGraphName);
+	protected:
+		bool OnInitDialog();
+		bool OnDlgResize(int nType, int cx, int cy);
+		bool GetInitDlgSize(int& width, int& height);
+		bool OnDestroy() {return true;}
+		void UpdateIndicator(int nIndex);
+		void UpdateOverlay(int nIndex);
+	public:
+		EVENTS_BEGIN_DERIV(HTMLDlg)
+			ON_INIT(OnInitDialog)
+			ON_DESTROY(OnDestroy)
+			ON_SIZE(OnDlgResize)
+		EVENTS_END_DERIV
+		
+		DECLARE_DISPATCH_MAP
+	private:	
+		BOOL GetGraphRECT(RECT& gcCntrlRect)  {				//this is the function to call JavaScript and get the position of GraphControl
+			if (!m_dhtml)
+				return false;
+			Object jsscript = m_dhtml.GetScript();
+			
+			if(!jsscript) //check the validity of returned COM object is always recommended
+				return false;
+			
+			string str = jsscript.getGraphRECT();	
+			JSON.FromString(gcCntrlRect, str); //convert a string to a structure
+			return true;
+		}
+	private:
+		GraphPage m_gp;
+		GraphControl m_gpCntrl;
+};
+
+BEGIN_DISPATCH_MAP(StockAnalyzerDlg, HTMLDlg)
+	DISP_FUNCTION(StockAnalyzerDlg, UpdateIndicator, VTS_VOID, VTS_I4)    
+	DISP_FUNCTION(StockAnalyzerDlg, UpdateOverlay, VTS_VOID, VTS_I4)
+END_DISPATCH_MAP
+
+string StockAnalyzerDlg::GetInitURL() {
+	string strPath = GetFilePath(__FILE__);
+	strPath += STR_HTML_NAME + ".html";    //html file in same folder as this cpp file
+	return strPath;
+}
+
+string StockAnalyzerDlg::GetDialogTitle() {
+	string strTitle("Stock Analyzer");
+	return strTitle;
+}
+
+/*
+void StockAnalyzerDlg::SetGraphTarget(string strGraphName) {
+	m_gp = Project.GraphPages(strGraphName);
+}
+*/
+
+bool StockAnalyzerDlg::OnInitDialog() {
+	HTMLDlg::OnInitDialog();
+	//ModifyStyle(0, WS_MAXIMIZEBOX);
+	//GraphControl gcCntrl;
+	RECT rr;
+	m_gpCntrl.CreateControl(GetSafeHwnd(), &rr, GRAPH_CONTROL_ID, WS_CHILD|WS_VISIBLE|WS_BORDER);
+	DWORD 	dwNoClicks = OC_PREVIEW_NOCLICK_NOZOOMPAN | NOCLICK_LABEL | NOCLICK_BUTTONS;
+	//GraphPage m_gp = Project.GraphPages("Graph1");
+	m_gp = GetStockAnalyzerGraph();
+	bool bb = m_gpCntrl.AttachPage(m_gp, dwNoClicks);
+	return true;
+}
+
+bool StockAnalyzerDlg::GetInitDlgSize(int& width, int& height) {
+	width = 1024;
+	height = 500;
+	return true;
+}
+
+/*
+bool StockAnalyzerDlg::OnDlgResize(int nType, int cx, int cy) {
+	if ( !IsInitReady() )
+			return false;
+		// MoveControlsHelper	_temp(this); // you can uncomment this line, if the dialog flickers when you resize it
+		HTMLDlg::OnDlgResize(nType, cx, cy); //place html control in dialog
+		
+		if ( !IsHTMLDocumentCompleted() ) //check the state of HTML control
+			return false;
+		
+		RECT rectGraph;
+		if ( !GetGraphRECT(rectGraph))
+			return false;
+		//overlap the GraphControl on the top of HTML control
+		m_gpCntrl.SetWindowPos(HWND_TOP, rectGraph.left, rectGraph.top,RECT_WIDTH(rectGraph),RECT_HEIGHT(rectGraph), 0); 
+		
+		return true;
+}
+*/
+
+///*
+bool StockAnalyzerDlg::OnDlgResize(int nType, int cx, int cy) {
+	if ( !IsInitReady() )
+			return TRUE;
+	
+		MoveControlsHelper	_temp(this);
+		
+		RECT rect;
+		GetClientRect(&rect);
+		RECT rectHTML, rectGraph;
+		rectHTML = rectGraph = rect;
+		
+		int nGap = GetControlGap();
+		
+		rectHTML.top = nGap;
+		rectHTML.left = nGap;
+		rectHTML.right = RECT_X(rect) - nGap;
+		rectHTML.bottom -= nGap;
+		MoveControl(m_dhtml, rectHTML);
+		
+		rectGraph.top = nGap;
+		rectGraph.left = RECT_X(rect) + nGap;
+		rectGraph.right -= nGap;
+		rectGraph.bottom -= nGap;
+		//MoveControl(m_gpCntrl.GetControl(), rectGraph);
+		m_gpCntrl.SetWindowPos(HWND_TOP, rectGraph.left, rectGraph.top,RECT_WIDTH(rectGraph),RECT_HEIGHT(rectGraph), 0); 
+		m_gpCntrl.GetPage().Refresh();
+		
+		return TRUE;
+}
+//*/
+
+void StockAnalyzerDlg::UpdateIndicator(int nIndex) {
+	//out_int("Indicator = ", nIndex);
+	SA_Indicator_Type(nIndex, m_gp);
+}
+
+void StockAnalyzerDlg::UpdateOverlay(int nIndex) {
+	//out_int("Overlay = ", nIndex);
+	SA_OverLay_Type(nIndex);
+}
 
 void StockAnalyzer_Main() {
 	// Get Config Tree
@@ -55,11 +202,19 @@ void StockAnalyzer_Main() {
 	set_active_layer(wp.Layers(0));
 }
 
+void StockAnalyzer_OpenHTML() {
+	// Open HTML
+	StockAnalyzerDlg dlg;
+	//s_pDlg = &dlg;
+	dlg.DoModalEx(GetWindow());
+	//s_pDlg = NULL;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // DIalog GUI
 
-Tree StockAnalyzer_GUI() {
+static Tree StockAnalyzer_GUI() {
 	double dToday = StockAnalyzer_GetToday();
 	
 	GETN_BOX(tr)
@@ -1434,6 +1589,12 @@ static vector<double> StockAnalyzer_PVO(vector<double> vsVol, int nPeriod1 = 12,
 	return vsPVO;
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+
+
+
+
 
 
 
@@ -1442,6 +1603,13 @@ static vector<double> StockAnalyzer_PVO(vector<double> vsVol, int nPeriod1 = 12,
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Misc
+
+static GraphPage GetStockAnalyzerGraph() {
+	WorksheetPage wp = Project.Pages();
+	Worksheet wks = wp.Layers(0);
+	GraphPage gp = wks.EmbeddedPages(0);
+	return gp;
+}
 
 static Column StockAnalyzer_GetSourceColumn(Worksheet wks, int nIndex) {
 	WorksheetPage wp;
@@ -1557,9 +1725,9 @@ static bool SA_OverLayList(int nType, vector<int> &vsIndex, string &strLegendNam
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Indicator
 
-void SA_Indicator_Type(int nType) {
+void SA_Indicator_Type(int nType, GraphPage gp) {
 	vector<string> saList;	saList = SA_IndicatorList();
-	GraphPage gp = Project.ActiveLayer().GetPage();
+	//GraphPage gp = Project.ActiveLayer().GetPage();
 	SA_Indicator_ShowHide(gp, saList[nType-1]);
 	gp.Layers(saList[nType-1]).Rescale();
 }
