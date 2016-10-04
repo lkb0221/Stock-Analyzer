@@ -164,6 +164,25 @@ Tree StockAnalyzer_GUI() {
 			GETN_NUM(Period, "Period", 14)						GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(MFI)
 		
+		GETN_BEGIN_BRANCH(NVI, "Negative Volume Index (NVI)")
+			GETN_NUM(Period, "Period", 255)						GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(NVI)
+		
+		GETN_BEGIN_BRANCH(OBV, "On Balance Volume (OBV)")
+		GETN_END_BRANCH(OBV)
+		
+		GETN_BEGIN_BRANCH(PPO, "Percentage Price Oscillator (PPO)")
+			GETN_NUM(Period1, "1st Time Period", 12)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "2nd Time Period", 26)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(SignalPeriod, "Signal EMA Period", 9)		GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(PPO)
+		
+		GETN_BEGIN_BRANCH(PVO, "Percentage Volume Oscillator (PVO)")
+			GETN_NUM(Period1, "1st Time Period", 12)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "2nd Time Period", 26)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(SignalPeriod, "Signal EMA Period", 9)		GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(PVO)
+		
 		GETN_BEGIN_BRANCH(McClellan, "McClellan Oscillator")
 			GETN_NUM(Period1, "Period Window 1", 19)		GETN_CURRENT_SUBNODE.Enable = false;
 			GETN_OPTION_NUM_FORMAT( ".0" )
@@ -443,6 +462,22 @@ void StockAnalyzer_MainProcess(int nUID) {
 	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
 	StockAnalyzer_MFI_Main(wksIndicator, wksData, vsIndex, trIndicators.MFI);
 	
+	// NVI
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
+	StockAnalyzer_NVI_Main(wksIndicator, wksData, vsIndex, trIndicators.NVI);
+	
+	// OBV
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_OBV_Main(wksIndicator, wksData, vsIndex);
+	
+	// PPO
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 3);	
+	StockAnalyzer_PPO_Main(wksIndicator, wksData, vsIndex, trIndicators.PPO);
+	
+	// PVO
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 3);	
+	StockAnalyzer_PVO_Main(wksIndicator, wksData, vsIndex, trIndicators.PVO);
+	
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -467,14 +502,15 @@ static void StockAnalyzer_SMA_Main(Worksheet wksTarget, Worksheet wksSource, vec
 static vector<double> StockAnalyzer_SMA(vector<double> vsClose, int nWin) {
 	int nNum = vsClose.TrimLeft(true);
 	int nSize = vsClose.GetSize();
-	vector<double> vsSMA(nSize);
+	vector<double> vsSMA(nSize);	vsSMA[0] = vsClose[0];
 	if (is_missing_value(nWin)) {
 		return NULL;
 	}
 	
-	for (int ii = 0; ii < nSize; ii++) {
+	for (int ii = 1; ii < nSize; ii++) {
 		if (ii + 1 - nWin <= 0) {
-			vsSMA[ii] = NANUM;
+			//vsSMA[ii] = NANUM;
+			vsSMA[ii] = ((vsSMA[ii-1] * ii) + vsClose[ii]) / (ii+1);
 		}
 		else {
 			vector<double> vsSubRange;
@@ -512,18 +548,22 @@ static vector<double> StockAnalyzer_EMA(vector<double> vsClose, int nWin) {
 	int nSize = vsClose.GetSize();
 	vector<double> vsEMA(nSize), vsSMA(nSize);
 	
-	vsSMA = StockAnalyzer_SMA(vsClose, nWin);
+	//vsSMA = StockAnalyzer_SMA(vsClose, nWin);
 	double dMultiplier = 2 / ((double)nWin + 1);
 	
 	// Calulate EMA
-	bool bStart;
-	for (int ii = 0; ii < nSize; ii++) {
-		if (is_missing_value(vsSMA[ii])) {
-			vsEMA[ii] = NANUM;
-		}
-		else if (!bStart){
-			vsEMA[ii] = vsSMA[ii];
-			bStart = true;
+	//bool bStart;
+	vsEMA[0] = vsClose[0];
+	for (int ii = 1; ii < nSize; ii++) {
+		//if (is_missing_value(vsSMA[ii])) {
+			//vsEMA[ii] = NANUM;
+		//}
+		//else if (!bStart){
+			//vsEMA[ii] = vsSMA[ii];
+			//bStart = true;
+		//}
+		if (ii + 1 - nWin <= 0) {
+			vsEMA[ii] = ((vsEMA[ii-1] * ii) + vsClose[ii]) / (ii+1);
 		}
 		else {
 			vsEMA[ii] = ((vsClose[ii] - vsEMA[ii-1]) * dMultiplier) + vsEMA[ii-1];
@@ -1269,7 +1309,130 @@ static void StockAnalyzer_SeperatePnN(vector<double> vs, vector<int> vsDir, vect
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Negative Volume Index (NVI)
 
+static void StockAnalyzer_NVI_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	Dataset dsVolume(wksSource, 5);
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	
+	Dataset dsNVI(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Negative Volume Index", StockAnalyzer_Legend("NVI, EMA", nPeriod)));
+	Dataset dsNVIEMA(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Negative Volume Index", ""));
+	
+	dsNVI = StockAnalyzer_NVI(dsClose, dsVolume);
+	dsNVIEMA = StockAnalyzer_EMA(dsNVI, nPeriod);
+}
+
+static vector<double> StockAnalyzer_NVI(vector<double> vsPrice, vector<double> vsVol) {
+	int nSize = vsPrice.GetSize();
+	vector<double> vsNVI(nSize);		vsNVI[0] = 1000;
+	
+	for(int ii = 1; ii < nSize; ii++) {
+		if (vsVol[ii] < vsVol[ii-1]) {
+			double dSPX = (vsPrice[ii] - vsPrice[ii-1]) / vsPrice[ii-1] * 100;
+			vsNVI[ii] = vsNVI[ii-1] + dSPX;
+		}
+		else {
+			vsNVI[ii] = vsNVI[ii-1];
+		}
+	};
+	
+	return vsNVI;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// On Balance Volume (OBV)
+
+static void StockAnalyzer_OBV_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	Dataset dsVolume(wksSource, 5);
+	
+	Dataset dsOBV(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "On Balance Volume", "OBV"));
+	dsOBV = StockAnalyzer_OBV(dsClose, dsVolume);
+}
+
+static vector<double> StockAnalyzer_OBV(vector<double> vsPrice, vector<double> vsVol) {
+	int nSize = vsPrice.GetSize();
+	vector<double> vsOBV(nSize);		
+	vsOBV[0] = 0;
+	
+	for (int ii = 1; ii < nSize; ii++) {
+		if (vsPrice[ii] > vsPrice[ii-1]) {
+			vsOBV[ii] = vsOBV[ii-1] + vsVol[ii];
+		}
+		else if (vsPrice[ii] < vsPrice[ii-1]) {
+			vsOBV[ii] =vsOBV[ii-1] - vsVol[ii];
+		}
+		else {
+			vsOBV[ii] = vsOBV[ii-1];
+		};
+	};
+	
+	return vsOBV;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Percentage Price Oscillator (PPO)
+
+static void StockAnalyzer_PPO_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nPeriod1 = tr.GetNode("Period1").nVal;
+	int nPeriod2 = tr.GetNode("Period2").nVal;
+	int nPeriod3 = tr.GetNode("SignalPeriod").nVal;
+	
+	Dataset dsPPO(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Percentage Price Oscillator", StockAnalyzer_Legend("PPO", nPeriod1, nPeriod2, nPeriod3)));
+	Dataset dsSignal(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Percentage Price Oscillator", ""));
+	Dataset dsHisto(StockAnalyzer_SetColumn(wksTarget, nIndex[2], "Percentage Price Oscillator", ""));
+	
+	dsPPO = StockAnalyzer_PPO(dsClose, nPeriod1, nPeriod2);
+	dsSignal = StockAnalyzer_EMA(dsPPO, nPeriod3);
+	dsHisto = dsPPO - dsSignal;
+}
+
+static vector<double> StockAnalyzer_PPO(vector<double> vsPrice, int nPeriod1 = 12, int nPeriod2 = 26) {
+	vector<double> vsPPO;
+	
+	vector<double> vsEMA1, vsEMA2;
+	vsEMA1 = StockAnalyzer_EMA(vsPrice, nPeriod1);
+	vsEMA2 = StockAnalyzer_EMA(vsPrice, nPeriod2);
+	
+	vsPPO = (vsEMA1 - vsEMA2) / vsEMA2 * 100;
+	
+	return vsPPO;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Percentage Volume Oscillator (PVO)
+
+static void StockAnalyzer_PVO_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsVol(wksSource, 5);	// Volumne
+	
+	int nPeriod1 = tr.GetNode("Period1").nVal;
+	int nPeriod2 = tr.GetNode("Period2").nVal;
+	int nPeriod3 = tr.GetNode("SignalPeriod").nVal;
+	
+	Dataset dsPVO(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Percentage Volume  Oscillator", StockAnalyzer_Legend("PVO", nPeriod1, nPeriod2, nPeriod3)));
+	Dataset dsSignal(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Percentage Volume  Oscillator", ""));
+	Dataset dsHisto(StockAnalyzer_SetColumn(wksTarget, nIndex[2], "Percentage Volume  Oscillator", ""));
+	
+	dsPVO = StockAnalyzer_PVO(dsVol, nPeriod1, nPeriod2);
+	dsSignal = StockAnalyzer_EMA(dsPVO, nPeriod3);
+	dsHisto = dsPVO - dsSignal;
+}
+
+static vector<double> StockAnalyzer_PVO(vector<double> vsVol, int nPeriod1 = 12, int nPeriod2 = 26) {
+	vector<double> vsPVO;
+	
+	vector<double> vsEMA1, vsEMA2;
+	vsEMA1 = StockAnalyzer_EMA(vsVol, nPeriod1);
+	vsEMA2 = StockAnalyzer_EMA(vsVol, nPeriod2);
+	
+	vsPVO = (vsEMA1 - vsEMA2) / vsEMA2 * 100;
+	
+	return vsPVO;
+}
 
 
 
@@ -1430,6 +1593,10 @@ static vector<string> SA_IndicatorList() {
 	sa.Add("Mass Index");
 	sa.Add("MACD");
 	sa.Add("Money Flow Index");
+	sa.Add("Negative Volume Index");
+	sa.Add("On Balance Volume");
+	sa.Add("PPO");
+	sa.Add("PVO");
 	sa.Add("");
 	sa.Add("");
 	sa.Add("Rate of Change");
