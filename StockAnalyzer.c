@@ -338,6 +338,23 @@ static Tree StockAnalyzer_GUI() {
 			GETN_NUM(SignalPeriod, "Signal EMA Period", 9)		GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(PVO)
 		
+		GETN_BEGIN_BRANCH(KST, "Know Sure Thing (KST)")
+			GETN_NUM(ROCp1, "1st ROC Period", 10)										GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(ROCw1, "1st ROC Average Window", 10)						GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(ROCp2, "2nd ROC Period", 15)										GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(ROCw2, "2nd ROC Average Window", 10)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(ROCp3, "3rd ROC Period", 20)										GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(ROCw3, "3rd ROC Average Window", 10)						GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(ROCp4, "4th ROC Period", 30)										GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(ROCw4, "4th ROC Average Window", 15)						GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(SignalPeriod, "Signal SMA Period", 9)							GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(KST)
+		
+		GETN_BEGIN_BRANCH(SPECIALK, "Martin Pring's Special K")
+			GETN_NUM(Period1, "SMA Period", 100)						GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "SMA Smoothing Period", 100)		GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(SPECIALK)
+		
 		GETN_BEGIN_BRANCH(McClellan, "McClellan Oscillator")
 			GETN_NUM(Period1, "Period Window 1", 19)		GETN_CURRENT_SUBNODE.Enable = false;
 			GETN_OPTION_NUM_FORMAT( ".0" )
@@ -633,6 +650,13 @@ void StockAnalyzer_MainProcess(int nUID) {
 	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 3);	
 	StockAnalyzer_PVO_Main(wksIndicator, wksData, vsIndex, trIndicators.PVO);
 	
+	// KST
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
+	StockAnalyzer_KST_Main(wksIndicator, wksData, vsIndex, trIndicators.KST);
+	
+	// SPECIALK
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
+	StockAnalyzer_SPECIALK_Main(wksIndicator, wksData, vsIndex, trIndicators.SPECIALK);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1590,7 +1614,82 @@ static vector<double> StockAnalyzer_PVO(vector<double> vsVol, int nPeriod1 = 12,
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
+// Know Sure Thing (KST)
+
+static void StockAnalyzer_KST_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nP1 = tr.GetNode("ROCp1").nVal;
+	int nW1 = tr.GetNode("ROCw1").nVal;
+	int nP2 = tr.GetNode("ROCp2").nVal;
+	int nW2 = tr.GetNode("ROCw2").nVal;
+	int nP3 = tr.GetNode("ROCp3").nVal;
+	int nW3 = tr.GetNode("ROCw3").nVal;
+	int nP4 = tr.GetNode("ROCp4").nVal;
+	int nW4 = tr.GetNode("ROCw4").nVal;
+	int nPS = tr.GetNode("SignalPeriod").nVal;
+	
+	string strLegend;
+	strLegend.Format("KST(%d, %d,%d,%d,%d,%d,%d,%d,%d)", nP1, nP2, nP3, nP4, nW1, nW2, nW3, nW4, nPS);
+	Dataset dsKST(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Know Sure Thing", strLegend));
+	Dataset dsSignal(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Know Sure Thing", ""));
+	
+	dsKST = StockAnalyzer_KST(dsClose, nP1, nP2, nP3, nP4, nW1, nW2, nW3, nW4);
+	dsSignal = StockAnalyzer_SMA(dsKST, nPS);
+}
+
+static vector<double> StockAnalyzer_KST(vector<double> vsClose, int nP1, int nP2, int nP3, int nP4, int nW1, int nW2, int nW3, int nW4) {
+	vector<double> vsKST;
+	
+	vector<double> vsRCMA1, vsRCMA2, vsRCMA3, vsRCMA4;
+	vsRCMA1 = StockAnalyzer_RCMA(vsClose, nP1, nW1);
+	vsRCMA2 = StockAnalyzer_RCMA(vsClose, nP2, nW2);
+	vsRCMA3 = StockAnalyzer_RCMA(vsClose, nP3, nW3);
+	vsRCMA4 = StockAnalyzer_RCMA(vsClose, nP4, nW4);
+	vsKST = vsRCMA1 + 2 * vsRCMA2 + 3 * vsRCMA3 + 4 * vsRCMA4;
+	
+	return vsKST;
+}
+
+static vector<double> StockAnalyzer_RCMA(vector<double> vsClose, int nP, int nW) {
+	vector<double> vsRCMA;
+	
+	vsRCMA = StockAnalyzer_ROC(vsClose, nP);
+	vsRCMA = StockAnalyzer_SMA(vsRCMA, nW);
+	
+	return vsRCMA;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Martin Pring's Special K
+
+static void StockAnalyzer_SPECIALK_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nPeriodSMA = tr.GetNode("Period1").nVal;	//
+	int nPeriodSMASmooth = tr.GetNode("Period2").nVal;	// 
+	
+	Dataset dsSPECIALK(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Martin Pring's Special K", StockAnalyzer_Legend("SPECIALK", nPeriodSMA, nPeriodSMASmooth)));
+	Dataset dsSmooth(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Martin Pring's Special K", ""));
+}
+
+static vector<double> StockAnalyzer_SPECIALK(vector<double> vsClose) {
+	vector<double> vsSpecialK;
+	
+	vector<int> vsListROC = {10, 15, 20, 30, 40, 65, 75, 100, 198, 265, 390, 530};
+	vector<int> vsListWin = {10, 10, 10, 15, 50, 65, 75, 100, 130, 130, 130, 195};
+	vector<int> vsListMulti = {1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4};
+	
+	
+	
+	return vsSpecialK;
+}
+
+
+
+
+
+
 
 
 
