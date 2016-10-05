@@ -1,0 +1,88 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html><head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type"><title>Stock Analyzer</title>
+
+<style type="text/css">
+	.column {
+	float:left;
+	width: 50%;
+	}
+</style>
+
+<script>
+	function PickIndicator() {
+		//var nIndex = document.getElementsByName('Technical Indicator').Value;
+		var nIndex = document.querySelector('input[name="Technical Indicator"]:checked').value;
+		window.external.ExtCall("UpdateIndicator", nIndex); 
+	}
+
+	function PickOverlay() {
+		var nIndex = document.querySelector('input[name="Technical Indicator"]:checked').value;
+		window.external.ExtCall("UpdateOverlay", nIndex); 
+	}
+
+	function getGraphRect() {			
+		var leftDiv = document.getElementById("leftcontainer");
+		var leftpos = leftDiv.getBoundingClientRect().right;
+		var toppos = leftDiv.getBoundingClientRect().top;
+		var bottompos = leftDiv.getBoundingClientRect().bottom;
+		
+		//var rightDiv = document.getElementById("rightcontainer");
+		//var rightpos = rightDiv.getBoundingClientRect().left;
+		
+		return JSON.stringify({
+			left: leftpos + 20,
+			top: toppos + 20,
+			right: rightpos - 20,
+			bottom: bottompos - 20})
+	}
+</script>
+</head>
+
+
+<body style="height: 32px;">
+<div id="leftcontainer">
+<h3>Stock Analyzer</h3>
+<form method="get" name="Technical Indicators">
+<div onclick="PickOverlay()" class="column">
+<h4>Technical Overlays</h4>
+<input name="Technical Overlay" value="1" type="radio"><label>Simple Moving Averge (SMA)</label><br>
+<input name="Technical Overlay" value="2" type="radio"><label>Exponential Moving Average (EMA)</label><br>
+<input name="Technical Overlay" value="3" type="radio"><label>Bollinger Band</label><br>
+<input name="Technical Overlay" value="4" type="radio"><label>Chandelier Exit</label><br>
+</div>
+<div onclick="PickIndicator()" class="column">
+<h4>Technical Indicators</h4>
+<input name="Technical Indicator" value="1" type="radio"><label>Accumulation Distribution Line(ADL)</label><br>
+<input name="Technical Indicator" value="2" type="radio"><label>Aroon</label><br>
+<input name="Technical Indicator" value="3" type="radio"><label>Aroon Oscillator</label><br>
+<input name="Technical Indicator" value="4" type="radio"><label>Average True Range (ATR)</label><br>
+<input name="Technical Indicator" value="5" type="radio"><label>Average Directional Index (ADI)</label><br>
+<input name="Technical Indicator" value="6" type="radio"><label>Bollinger BandWidth</label><br>
+<input name="Technical Indicator" value="7" type="radio"><label>%B Indicator</label><br>
+<input name="Technical Indicator" value="8" type="radio"><label>Commodity Channel Index (CCI)</label><br>
+<input name="Technical Indicator" value="9" type="radio"><label>Coppock Curve</label><br>
+<input name="Technical Indicator" value="10" type="radio"><label>Chaikin Money Flow (CMF)</label><br>
+<input name="Technical Indicator" value="11" type="radio"><label>Chaikin Oscillator</label><br>
+<input name="Technical Indicator" value="12" type="radio"><label>DecisionPoint Price Momentum Oscillator (PMO)</label><br>
+<input name="Technical Indicator" value="13" type="radio"><label>Detrended Price Oscillator (DPO)</label><br>
+<input name="Technical Indicator" value="14" type="radio"><label>Ease of Movement (EMV)</label><br>
+<input name="Technical Indicator" value="15" type="radio"><label>Force Index</label><br>
+<input name="Technical Indicator" value="16" type="radio"><label>Mass Index</label><br>
+<input name="Technical Indicator" value="17" type="radio"><label>Moving Average Convergence/Divergence Oscillator (MACD)</label><br>
+<input name="Technical Indicator" value="18" type="radio"><label>Money Flow Index (MFI)</label><br>
+<input name="Technical Indicator" value="19" type="radio"><label>Negative Volume Index (NVI)</label><br>
+<input name="Technical Indicator" value="20" type="radio"><label>On Balance Volume (OBV)</label><br>
+<input name="Technical Indicator" value="21" type="radio"><label>Percentage Price Oscillator (PPO)</label><br>
+<input name="Technical Indicator" value="22" type="radio"><label>Percentage Volume Oscillator (PVO)</label><br>
+<input name="Technical Indicator" value="23" type="radio"><label>Know Sure Thing (KST)</label><br>
+<br>
+</div>
+</form>
+<br>
+<input value="Add/Refresh Ref Lines" name="RefLines" type="button">
+</div>
+</body>
+
+
+</html>
