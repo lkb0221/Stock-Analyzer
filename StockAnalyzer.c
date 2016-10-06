@@ -355,6 +355,14 @@ static Tree StockAnalyzer_GUI() {
 			GETN_NUM(Period2, "SMA Smoothing Period", 100)		GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(SPECIALK)
 		
+		GETN_BEGIN_BRANCH(RSI, "Relative Strength Index (RSI)")
+			GETN_NUM(Period, "Period", 14)						GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(RSI)
+		
+		GETN_BEGIN_BRANCH(Slope, "Moving Slope")
+			GETN_NUM(Period, "Period", 52)						GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(Slope)
+		
 		GETN_BEGIN_BRANCH(McClellan, "McClellan Oscillator")
 			GETN_NUM(Period1, "Period Window 1", 19)		GETN_CURRENT_SUBNODE.Enable = false;
 			GETN_OPTION_NUM_FORMAT( ".0" )
@@ -657,6 +665,15 @@ void StockAnalyzer_MainProcess(int nUID) {
 	// SPECIALK
 	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
 	StockAnalyzer_SPECIALK_Main(wksIndicator, wksData, vsIndex, trIndicators.SPECIALK);
+	
+	// RSI
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 3);	
+	StockAnalyzer_RSI_Main(wksIndicator, wksData, vsIndex, trIndicators.RSI);
+	
+	// Slope
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_Slope_Main(wksIndicator, wksData, vsIndex, trIndicators.Slope);
+	
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1344,7 +1361,8 @@ static vector<double> StockAnalyzer_Force(vector<double> vsClose, vector<double>
 	
 	vector<double> vsPreviousClose;
 	vsClose.GetSubVector(vsPreviousClose, 0, vsClose.GetSize()-2);
-	vsPreviousClose.InsertAt(0, NANUM);
+	//vsPreviousClose.InsertAt(0, NANUM);
+	vsPreviousClose.InsertAt(0, vsClose[0]);		// 1st force bing 0 for setup
 	vsForce = (vsClose - vsPreviousClose) * vsVol;
 	vsForce = StockAnalyzer_EMA(vsForce, nPeriod);
 	
@@ -1671,27 +1689,176 @@ static void StockAnalyzer_SPECIALK_Main(Worksheet wksTarget, Worksheet wksSource
 	
 	Dataset dsSPECIALK(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Martin Pring's Special K", StockAnalyzer_Legend("SPECIALK", nPeriodSMA, nPeriodSMASmooth)));
 	Dataset dsSmooth(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Martin Pring's Special K", ""));
+	
+	dsSPECIALK = StockAnalyzer_SPECIALK(dsClose);
+	dsSmooth = StockAnalyzer_SPECIALK_Smooth(dsSPECIALK, nPeriodSMA, nPeriodSMASmooth);
 }
 
 static vector<double> StockAnalyzer_SPECIALK(vector<double> vsClose) {
 	vector<double> vsSpecialK;
+	int nSize = vsClose.GetSize();
+	vsSpecialK.SetSize(nSize);
+	vsSpecialK = 0;
+	
+	if (nSize < 725) {
+		return vsSpecialK;
+	};
 	
 	vector<int> vsListROC = {10, 15, 20, 30, 40, 65, 75, 100, 198, 265, 390, 530};
 	vector<int> vsListWin = {10, 10, 10, 15, 50, 65, 75, 100, 130, 130, 130, 195};
 	vector<int> vsListMulti = {1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4};
 	
-	
+	for (int ii = 0; ii < 12; ii++) {
+		vector<double> vsROC;
+		vsROC = StockAnalyzer_ROC(vsClose, vsListROC[ii]);
+		vsSpecialK += StockAnalyzer_SMA(vsROC, vsListWin[ii]) * vsListMulti[ii];
+	};
 	
 	return vsSpecialK;
 }
 
+static vector<double> StockAnalyzer_SPECIALK_Smooth(vector<double> vsK, int nPeriodSMA, int nPeriodSMASmooth) {
+	vector<double> vsSmooth;
+	
+	vsSmooth = StockAnalyzer_SMA(vsK, nPeriodSMA);
+	
+	return vsSmooth;
+}
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Relative Strength Index (RSI)
 
+static void StockAnalyzer_RSI_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	int nSize = dsClose.GetSize();
+	
+	Dataset ds70(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Relative Strength Index", ""));
+	Dataset dsRSI(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Relative Strength Index", StockAnalyzer_Legend("RSI", nPeriod)));
+	Dataset ds30(StockAnalyzer_SetColumn(wksTarget, nIndex[2], "Relative Strength Index", ""));
+	
+	ds70.SetSize(nSize); 	ds70 = 70;
+	dsRSI = StockAnalyzer_RSI(dsClose, nPeriod);
+	ds30.SetSize(nSize); 	ds30 = 30;
+}
 
+static vector<double> StockAnalyzer_RSI(vector<double> vsClose, int nPeriod) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsRSI(nSize), vsRS(nSize);
+	
+	vector<double> vsChange;
+	vsChange = StockAnalyzer_Change(vsClose);	// Get Change
+	
+	vector<double> vsGain(nSize), vsLoss(nSize);
+	StockAnalyzer_SeperateGainAndLoss(vsChange, vsGain, vsLoss);		// Seperate gain and loss form change
+	
+	vsRS = StockAnalyzer_RS(vsGain, vsLoss, nPeriod);		// RS
+	
+	vsRSI = StockAnalyzer_RSI(vsRS);		// RSI
+	
+	return vsRSI;
+}
 
+static vector<double> StockAnalyzer_Change(vector<double> vsSource) {
+	vector<double> vsChange;
+	vsSource.Difference(vsChange);
+	vsChange.InsertAt(0, 0);
+	return vsChange;
+}
 
+static bool StockAnalyzer_SeperateGainAndLoss(vector<double> vsChange, vector<double> &vsGain, vector<double> &vsLoss) {
+	for (int ii = 0; ii < vsChange.GetSize(); ii++) {
+		if (vsChange[ii] > 0) {
+			vsGain[ii] = vsChange[ii];
+			vsLoss[ii] = NANUM;
+		}
+		else if (vsChange[ii] < 0) {
+			vsGain[ii] = NANUM;
+			vsLoss[ii] = abs(vsChange[ii]);
+		}
+		else {
+			vsGain[ii] = NANUM;
+			vsLoss[ii] = NANUM;
+		};
+	};
+	return true;
+}
 
+static vector<double> StockAnalyzer_RS(vector<double> vsGain, vector<double> vsLoss, int nPeriod) {
+	
+	// The very first calculations for average gain and average loss are simple N period averages.
+	int nSize = vsGain.GetSize();
+	vector<double> vsMovingGain(nSize), vsMovingLoss(nSize);
+	//vsMovingGain = StockAnalyzer_SMA(vsGain, nPeriod);
+	//vsMovingLoss = StockAnalyzer_SMA(vsLoss, nPeriod);
+	vsMovingGain[nPeriod] = StockAnalyzer_RS_First(vsGain, nPeriod);
+	vsMovingLoss[nPeriod] = StockAnalyzer_RS_First(vsLoss, nPeriod);
+	
+	// The second, and subsequent, calculations are based on the prior averages and the current gain loss:
+	for (int ii = nPeriod + 1; ii < nSize; ii++) {
+		if (is_missing_value(vsGain[ii])) {
+			vsMovingGain[ii] = vsMovingGain[ii-1] * (nPeriod - 1) / nPeriod;
+		}
+		else {
+			vsMovingGain[ii] = ((vsMovingGain[ii-1] * (nPeriod - 1)) + vsGain[ii]) / nPeriod;
+		}
+		
+		if (is_missing_value(vsLoss[ii])) {
+			vsMovingLoss[ii] = vsMovingLoss[ii-1] * (nPeriod - 1) / nPeriod;
+		}
+		else {
+			vsMovingLoss[ii] = ((vsMovingLoss[ii-1] * (nPeriod - 1)) + vsLoss[ii]) / nPeriod;
+		}
+	};
+	
+	//return vsRS;
+	return vsMovingGain / vsMovingLoss;
+}
 
+static vector<double> StockAnalyzer_RSI(vector<double> vsRS) {
+	return 100 - 100 / (1 + vsRS);
+}
+
+static double StockAnalyzer_RS_First(vector<double> vs, int nPeriod) {
+	vector<double> vsSubRange;
+	vs.GetSubVector(vsSubRange, 0, nPeriod-1);
+	double dSum;
+	vsSubRange.Sum(dSum);
+	return dSum / nPeriod;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Slope
+
+static void StockAnalyzer_Slope_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	
+	Dataset dsSlope(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Slope", StockAnalyzer_Legend("Slope", nPeriod)));
+	dsSlope = StockAnalyzer_Slope(dsClose, nPeriod);
+}
+
+static vector<double> StockAnalyzer_Slope(vector<double> vsClose, int nPeriod) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsSlope(nSize);
+	vsSlope = 0;
+	
+	for (int ii = 10; ii < nSize; ii++) {					// Start form 10 to reduce the starting noise
+		int nStart = (ii < nPeriod)? 0:(ii - nPeriod + 1);
+		int nEnd = ii;
+		int nNum = nEnd - nStart + 1;
+		vector<double> vx, vy;
+		vx.Data(1, nNum, 1);
+		vsClose.GetSubVector(vy, nStart, nEnd);
+		FitParameter sFitParameter[2];
+		ocmath_linear_fit(vx, vy, nNum, sFitParameter);
+		vsSlope[ii] = sFitParameter[1].Value;
+	}
+	
+	return vsSlope;
+}
 
 
 
@@ -1842,7 +2009,7 @@ static void SA_Indicator_ShowHide(GraphPage gp, string strLayerName) {
 static vector<string> SA_IndicatorList() {
 	vector<string> sa;
 	
-	sa.Add("Accumulation Distribution Line");
+	sa.Add("Accumulation Distribution Line");		// 1
 	sa.Add("Aroon");
 	sa.Add("Aroon Oscillator");
 	sa.Add("Average True Range");
@@ -1851,7 +2018,7 @@ static vector<string> SA_IndicatorList() {
 	sa.Add("B Indicator");
 	sa.Add("Commodity Channel Index");
 	sa.Add("Coppock Curve");
-	sa.Add("Chaikin Money Flow");
+	sa.Add("Chaikin Money Flow");						// 10
 	sa.Add("Chaikin Oscillator");
 	sa.Add("PMO");
 	sa.Add("DPO");
@@ -1861,13 +2028,17 @@ static vector<string> SA_IndicatorList() {
 	sa.Add("MACD");
 	sa.Add("Money Flow Index");
 	sa.Add("Negative Volume Index");
-	sa.Add("On Balance Volume");
+	sa.Add("On Balance Volume");						// 20
 	sa.Add("PPO");
 	sa.Add("PVO");
-	sa.Add("");
-	sa.Add("");
+	sa.Add("Know Sure Thing");
+	sa.Add("Special K");
 	sa.Add("Rate of Change");
-	
+	sa.Add("Relative Strength Index");
+	sa.Add("Slope");
+	sa.Add("");
+	sa.Add("");
+	sa.Add("");														// 30
 	return sa;
 }
 
