@@ -116,7 +116,7 @@ bool StockAnalyzerDlg::GetInitDlgSize(int& width, int& height) {
 	return true;
 }
 
-/*
+///*
 bool StockAnalyzerDlg::OnDlgResize(int nType, int cx, int cy) {
 	if ( !IsInitReady() )
 			return false;
@@ -134,9 +134,9 @@ bool StockAnalyzerDlg::OnDlgResize(int nType, int cx, int cy) {
 		
 		return true;
 }
-*/
+//*/
 
-///*
+/*
 bool StockAnalyzerDlg::OnDlgResize(int nType, int cx, int cy) {
 	if ( !IsInitReady() )
 			return TRUE;
@@ -166,7 +166,7 @@ bool StockAnalyzerDlg::OnDlgResize(int nType, int cx, int cy) {
 		
 		return TRUE;
 }
-//*/
+*/
 
 void StockAnalyzerDlg::UpdateIndicator(int nIndex) {
 	//out_int("Indicator = ", nIndex);
@@ -363,19 +363,22 @@ static Tree StockAnalyzer_GUI() {
 			GETN_NUM(Period, "Period", 52)						GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(Slope)
 		
+		GETN_BEGIN_BRANCH(StdDev, "Standard Deviation (Volatility)")
+			GETN_NUM(Period, "Period", 52)						GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(StdDev)
+		
+		GETN_BEGIN_BRANCH(StochasticOscillator, "Stochastic Oscillator")
+			GETN_NUM(PeriodK, "K Period", 14)	GETN_OPTION_NUM_FORMAT( ".0" )		// %K
+			GETN_NUM(PeriodD, "D Period", 3)	GETN_OPTION_NUM_FORMAT( ".0" )		// %D
+			GETN_RADIO_INDEX_EX(Method, "Type", 0, "Fast|Slow|Full")	
+		GETN_END_BRANCH(StochasticOscillator)
+		
 		GETN_BEGIN_BRANCH(McClellan, "McClellan Oscillator")
 			GETN_NUM(Period1, "Period Window 1", 19)		GETN_CURRENT_SUBNODE.Enable = false;
 			GETN_OPTION_NUM_FORMAT( ".0" )
 			GETN_NUM(Period2, "Period Window 2", 39)		GETN_CURRENT_SUBNODE.Enable = false;
 			GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(McClellan)
-		
-		GETN_BEGIN_BRANCH(StochasticOscillator, "Stochastic Oscillator")
-			GETN_NUM(PeriodK, "K Period", 14)	GETN_OPTION_NUM_FORMAT( ".0" )		// %K
-			GETN_NUM(PeriodD, "D Period", 3)	GETN_OPTION_NUM_FORMAT( ".0" )		// %D
-			//GETN_CHECK(Slow, "Include Slow Stochastic Oscillator", false)
-			//GETN_CHECK(Full, "Include Full Stochastic Oscillator", false)
-		GETN_END_BRANCH(StochasticOscillator)
 		
 		GETN_BEGIN_BRANCH(ROC, "Rate of Change (ROC)")
 			GETN_NUM(Period1, "1st Period", 250)					GETN_OPTION_NUM_FORMAT( ".0" )
@@ -673,6 +676,14 @@ void StockAnalyzer_MainProcess(int nUID) {
 	// Slope
 	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
 	StockAnalyzer_Slope_Main(wksIndicator, wksData, vsIndex, trIndicators.Slope);
+	
+	// StdDev
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_StdDev_Main(wksIndicator, wksData, vsIndex, trIndicators.StdDev);
+	
+	// Stochastic Oscillator (K & D)
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
+	StockAnalyzer_Sto_Main(wksIndicator, wksData, vsIndex, trIndicators.Sto);
 	
 }
 
@@ -1014,6 +1025,7 @@ static vector<double> StockAnalyzer_ADX(vector<double> vsHigh, vector<double> vs
 	vsDIn = vsDMn / vsTR * 100;
 	
 	vsADX = abs(vsDIp - vsDIn) / (vsDIp + vsDIn) * 100;
+	vsADX[0] = 20;
 	vsADX = StockAnalyzer_EMA(vsADX, nWin);
 	
 	return vsADX;
@@ -1843,7 +1855,7 @@ static void StockAnalyzer_Slope_Main(Worksheet wksTarget, Worksheet wksSource, v
 static vector<double> StockAnalyzer_Slope(vector<double> vsClose, int nPeriod) {
 	int nSize = vsClose.GetSize();
 	vector<double> vsSlope(nSize);
-	vsSlope = 0;
+	vsSlope = NANUM;
 	
 	for (int ii = 10; ii < nSize; ii++) {					// Start form 10 to reduce the starting noise
 		int nStart = (ii < nPeriod)? 0:(ii - nPeriod + 1);
@@ -1860,8 +1872,87 @@ static vector<double> StockAnalyzer_Slope(vector<double> vsClose, int nPeriod) {
 	return vsSlope;
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Standard Deviation (Volatility)
 
+static void StockAnalyzer_StdDev_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	
+	Dataset dsStdDev(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Standard Deviation", StockAnalyzer_Legend("STDDEV", nPeriod)));
+	dsStdDev = StockAnalyzer_StdDev(dsClose, nPeriod);
+}
 
+static vector<double> StockAnalyzer_StdDev(vector<double> vsClose, int nPeriod) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsStdDev(nSize);
+	vsStdDev = NANUM;
+	
+	for (int ii = 10; ii < nSize; ii++) {					// Start form 10 to reduce the starting noise
+		int nStart = (ii < nPeriod)? 0:(ii - nPeriod + 1);
+		int nEnd = ii;
+		int nNum = nEnd - nStart + 1;
+		vector<double> vs;
+		vsClose.GetSubVector(vs, nStart, nEnd);
+		double  dSD;
+		ocmath_basic_summary_stats(nNum, vs, NULL, NULL, &dSD);
+		vsStdDev[ii] = dSD;
+	}
+	
+	
+	return vsStdDev;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Stochastic Oscillator
+
+static void StockAnalyzer_Sto_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsHigh(wksSource, 2);		// 
+	Dataset dsLow(wksSource, 3);		// 
+	Dataset dsClose(wksSource, 4);	// real close
+	
+	int nPeriodK = tr.GetNode("PeriodK").nVal;
+	int nPeriodD = tr.GetNode("PeriodD").nVal;
+	
+	Dataset dsK(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Stochastic Oscillator", StockAnalyzer_Legend("%K", nPeriodK)));
+	Dataset dsD(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Stochastic Oscillator", StockAnalyzer_Legend("%D", nPeriodD)));
+	
+	dsK = StockAnalyzer_Sto_K(dsHigh, dsLow, dsClose, nPeriodK);
+	
+	switch (tr.Method.nVal) {
+	case 0:		// Fast
+		dsD = StockAnalyzer_SMA(dsK, 3);
+		break;
+	case 1:		// Slow
+		dsK = StockAnalyzer_SMA(dsK, 3);
+		dsD = StockAnalyzer_SMA(dsK, 3);
+		break;
+	case 2:		// Full
+		break;
+	}
+	
+}
+
+static vector<double> StockAnalyzer_Sto_K(vector<double> vsHigh, vector<double> vsLow, vector<double> vsClose, int nPeriod) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsK(nSize);
+	vsK = NANUM;
+	
+	for (int ii = 1; ii < nSize; ii++) {					// Start form 2nd point to reduce the starting noise
+		int nStart = (ii < nPeriod)? 0:(ii - nPeriod + 1);
+		int nEnd = ii;
+		vector<double> vs;
+		vsClose.GetSubVector(vs, nStart, nEnd);
+		vsK[ii] = StockAnalyzer_StochasticOscillator(max(vs), min(vs), vsClose[ii]);
+	};
+	
+	return vsK;
+}
+
+static double StockAnalyzer_StochasticOscillator(double dHighest, double dLowest, double dClose) {
+	return (dClose - dLowest) / (dHighest - dLowest) * 100;
+}
 
 
 
