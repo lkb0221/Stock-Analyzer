@@ -196,6 +196,9 @@ void StockAnalyzer_Main() {
 	// Delete downloaded file
 	StockAnalyzer_Delete(strDownload);
 	
+	// Run Calculation
+	StockAnalyzer_MainProcess(wp.GetUID());
+	
 	// Force refresh
 	wp.LT_execute("run -p au;");
 	set_active_layer(wp.Layers(1));
@@ -355,7 +358,14 @@ static Tree StockAnalyzer_GUI() {
 			GETN_NUM(Period2, "SMA Smoothing Period", 100)		GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(SPECIALK)
 		
-		GETN_BEGIN_BRANCH(RSI, "Relative Strength Index (RSI)")
+		GETN_BEGIN_BRANCH(ROC, "Rate of Change (ROC)")
+			GETN_NUM(Period1, "1st Period", 250)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "2nd Period", 125)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period3, "3rd Period", 63)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period4, "4th Period", 21)						GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(ROC)
+		
+		GETN_BEGIN_BRANCH(RSI, "Relative Strength Index (RSI & StochRSI)")
 			GETN_NUM(Period, "Period", 14)						GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(RSI)
 		
@@ -373,6 +383,12 @@ static Tree StockAnalyzer_GUI() {
 			GETN_RADIO_INDEX_EX(Method, "Type", 0, "Fast|Slow|Full")	
 		GETN_END_BRANCH(StochasticOscillator)
 		
+		GETN_BEGIN_BRANCH(TRIX, "TRIX")
+			GETN_NUM(Period1, "EMA Period", 52)						GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "ROC Period", 52)						GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(TRIX)
+		
+		
 		GETN_BEGIN_BRANCH(McClellan, "McClellan Oscillator")
 			GETN_NUM(Period1, "Period Window 1", 19)		GETN_CURRENT_SUBNODE.Enable = false;
 			GETN_OPTION_NUM_FORMAT( ".0" )
@@ -380,12 +396,7 @@ static Tree StockAnalyzer_GUI() {
 			GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(McClellan)
 		
-		GETN_BEGIN_BRANCH(ROC, "Rate of Change (ROC)")
-			GETN_NUM(Period1, "1st Period", 250)					GETN_OPTION_NUM_FORMAT( ".0" )
-			GETN_NUM(Period2, "2nd Period", 125)					GETN_OPTION_NUM_FORMAT( ".0" )
-			GETN_NUM(Period3, "3rd Period", 63)					GETN_OPTION_NUM_FORMAT( ".0" )
-			GETN_NUM(Period4, "4th Period", 21)						GETN_OPTION_NUM_FORMAT( ".0" )
-		GETN_END_BRANCH(ROC)
+		
 		
 		
 		
@@ -415,6 +426,7 @@ static int StockAnalyzer_GUI_event(TreeNode& tr, int nRow, int nEvent, DWORD& dw
 	if (0 == lstrcmp(lpcszNodeName, "Range")) {
 		StockAnalyzer_GUI_event_Input(tr.Data);
 	};
+	
 	
 	
 	
@@ -683,7 +695,15 @@ void StockAnalyzer_MainProcess(int nUID) {
 	
 	// Stochastic Oscillator (K & D)
 	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
-	StockAnalyzer_Sto_Main(wksIndicator, wksData, vsIndex, trIndicators.Sto);
+	StockAnalyzer_Sto_Main(wksIndicator, wksData, vsIndex, trIndicators.StochasticOscillator);
+	
+	// StochRSI
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_StochRSI_Main(wksIndicator, wksIndicator, vsIndex, trIndicators.RSI);
+	
+	// TRIX
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
+	
 	
 }
 
@@ -1954,6 +1974,44 @@ static double StockAnalyzer_StochasticOscillator(double dHighest, double dLowest
 	return (dClose - dLowest) / (dHighest - dLowest) * 100;
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// StochRSI
+
+static void StockAnalyzer_StochRSI_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsRSI(wksSource, 45);
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	
+	Dataset dsStochRSI(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "StochRSI", StockAnalyzer_Legend("StochRSI", nPeriod)));
+	
+	dsStochRSI = StockAnalyzer_StochRSI(dsRSI, nPeriod);
+}
+
+static vector<double> StockAnalyzer_StochRSI(vector<double> vsRSI, int nPeriod) {
+	int nSize = vsRSI.GetSize();
+	vector<double> vsStochRSI(nSize);
+	vsStochRSI = NANUM;
+	
+	for (int ii = 1; ii < nSize; ii++) {
+		int nStart = (ii < nPeriod)? 0:(ii - nPeriod + 1);
+		int nEnd = ii;
+		vector<double> vs;
+		vsRSI.GetSubVector(vs, nStart, nEnd);
+		vsStochRSI[ii] = (vsRSI[ii] - min(vs)) / (max(vs) - min(vs));
+	};
+	
+	return vsStochRSI;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TRIX
+
+static void StockAnalyzer_TRIX_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 4);	// real close
+	
+	
+}
+
 
 
 
@@ -2127,8 +2185,8 @@ static vector<string> SA_IndicatorList() {
 	sa.Add("Rate of Change");
 	sa.Add("Relative Strength Index");
 	sa.Add("Slope");
-	sa.Add("");
-	sa.Add("");
+	sa.Add("StdDev");
+	sa.Add("Sto");
 	sa.Add("");														// 30
 	return sa;
 }
