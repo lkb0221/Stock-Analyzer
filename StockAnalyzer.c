@@ -384,22 +384,38 @@ static Tree StockAnalyzer_GUI() {
 		GETN_END_BRANCH(StochasticOscillator)
 		
 		GETN_BEGIN_BRANCH(TRIX, "TRIX")
-			GETN_NUM(Period1, "EMA Period", 52)						GETN_OPTION_NUM_FORMAT( ".0" )
-			GETN_NUM(Period2, "ROC Period", 52)						GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period1, "EMA Period", 15)						GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "Signal Period", 9)						GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(TRIX)
 		
+		GETN_BEGIN_BRANCH(TSI, "True Strength Index (TSI)")
+			GETN_NUM(Period1, "1st smooth Period", 25)						GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "2nd smooth Period", 13)						GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period3, "Signal Period", 7)									GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(TSI)
 		
+		GETN_BEGIN_BRANCH(UI, "Ulcer Index")
+			GETN_NUM(Period, "Period", 14)						GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(UI)
+		
+		GETN_BEGIN_BRANCH(ULT, "Ultimate Oscillator")
+			GETN_NUM(Period1, "1st Period", 7)					GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "2nd Period", 14)				GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period3, "3rd Period", 28)				GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(ULT)
+		
+		GETN_BEGIN_BRANCH(VI, "Vortex Indicator")
+			GETN_NUM(Period, "Period", 14)						GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(VI)
+		
+		/*
 		GETN_BEGIN_BRANCH(McClellan, "McClellan Oscillator")
 			GETN_NUM(Period1, "Period Window 1", 19)		GETN_CURRENT_SUBNODE.Enable = false;
 			GETN_OPTION_NUM_FORMAT( ".0" )
 			GETN_NUM(Period2, "Period Window 2", 39)		GETN_CURRENT_SUBNODE.Enable = false;
 			GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(McClellan)
-		
-		
-		
-		
-		
+		*/
 	GETN_END_BRANCH(Indicators)
 	
 	
@@ -703,8 +719,23 @@ void StockAnalyzer_MainProcess(int nUID) {
 	
 	// TRIX
 	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
+	StockAnalyzer_TRIX_Main(wksIndicator, wksData, vsIndex, trIndicators.TRIX);
 	
+	// True Strength Index (TSI)
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
+	StockAnalyzer_TSI_Main(wksIndicator, wksData, vsIndex, trIndicators.TSI);
 	
+	// Ulcer Index
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_UI_Main(wksIndicator, wksData, vsIndex, trIndicators.UI);
+	
+	// Ultimate Oscillator
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_ULT_Main(wksIndicator, wksData, vsIndex, trIndicators.ULT);
+	
+	// Vortex Indicator
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
+	StockAnalyzer_VI_Main(wksIndicator, wksData, vsIndex, trIndicators.VI);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -780,7 +811,7 @@ static vector<double> StockAnalyzer_EMA(vector<double> vsClose, int nWin) {
 	
 	// Calulate EMA
 	//bool bStart;
-	vsEMA[0] = vsClose[0];
+	vsEMA[0] = is_missing_value(vsClose[0])? 0:vsClose[0];
 	for (int ii = 1; ii < nSize; ii++) {
 		//if (is_missing_value(vsSMA[ii])) {
 			//vsEMA[ii] = NANUM;
@@ -1181,7 +1212,7 @@ static void StockAnalyzer_ROC_Main(Worksheet wksTarget, Worksheet wksSource, vec
 
 static vector StockAnalyzer_ROC(vector<double> vsClose, int nPeriod) {
 	int nSize = vsClose.GetSize();
-	vector<double> vsROC(nSize);	vsROC = NANUM;
+	vector<double> vsROC(nSize);	vsROC = 0;
 	for (int ii = nPeriod; ii < nSize; ii++) {
 		vsROC[ii] = (vsClose[ii] - vsClose[ii - nPeriod]) / vsClose[ii - nPeriod] * 100;
 	}
@@ -2007,11 +2038,193 @@ static vector<double> StockAnalyzer_StochRSI(vector<double> vsRSI, int nPeriod) 
 // TRIX
 
 static void StockAnalyzer_TRIX_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
-	Dataset dsClose(wksSource, 4);	// real close
+	Dataset dsClose(wksSource, 6);	// adj close
 	
+	int nPeriod1 = tr.GetNode("Period1").nVal;
+	int nPeriod2 = tr.GetNode("Period2").nVal;
 	
+	Dataset dsTRIX(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "TRIX", StockAnalyzer_Legend("TRIX", nPeriod1, nPeriod2)));
+	Dataset dsSignal(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "TRIX", ""));
+	
+	dsTRIX = StockAnalyzer_TRIX(dsClose, nPeriod1);
+	dsSignal = StockAnalyzer_EMA(dsTRIX, nPeriod2);
 }
 
+static vector<double> StockAnalyzer_TRIX(vector<double> vsClose, int nPeriod) {
+	vector<double> vsTRIX;
+	
+	vsTRIX = StockAnalyzer_EMA(vsClose, nPeriod);		// Single-Smoothed EMA
+	vsTRIX = StockAnalyzer_EMA(vsTRIX, nPeriod);		// Double-Smoothed EMA
+	vsTRIX = StockAnalyzer_EMA(vsTRIX, nPeriod);		// Triple-Smoothed EMA
+	vsTRIX = StockAnalyzer_ROC(vsTRIX, 1);
+	
+	return vsTRIX;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// True Strength Index (TSI)
+
+static void StockAnalyzer_TSI_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nPeriod1 = tr.GetNode("Period1").nVal;
+	int nPeriod2 = tr.GetNode("Period2").nVal;
+	int nPeriod3 = tr.GetNode("Period3").nVal;
+	
+	Dataset dsTSI(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "True Strength Index", StockAnalyzer_Legend("TSI", nPeriod1, nPeriod2, nPeriod3)));
+	Dataset dsSignal(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "True Strength Index", ""));
+	
+	dsTSI = StockAnalyzer_TSI(dsClose, nPeriod1, nPeriod2);
+	dsSignal = StockAnalyzer_EMA(dsTSI, nPeriod3);
+}
+
+static vector<double> StockAnalyzer_TSI(vector<double> vsClose, int nPeriod1, int nPeriod2) {
+	vector<double> vsTSI, vsPC, vsAPC;
+	
+	// Price Change
+	vsClose.Difference(vsPC);
+	vsPC.InsertAt(0, 0);
+	vsAPC = abs(vsPC);
+	
+	// 1st Smooth
+	vsPC = StockAnalyzer_EMA(vsPC, nPeriod1);
+	vsAPC = StockAnalyzer_EMA(vsAPC, nPeriod1);
+	
+	// 2nd Smooth
+	vsPC = StockAnalyzer_EMA(vsPC, nPeriod2);
+	vsAPC = StockAnalyzer_EMA(vsAPC, nPeriod2);
+	
+	vsTSI = 100 * (vsPC / vsAPC);
+	
+	return vsTSI;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Ulcer Index
+
+static void StockAnalyzer_UI_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	
+	Dataset dsUI(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Ulcer Index", StockAnalyzer_Legend("UI", nPeriod)));
+	
+	dsUI = StockAnalyzer_UI(dsClose, nPeriod);
+}
+
+static vector<double> StockAnalyzer_UI(vector<double> vsClose, int nPeriod) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsUI(nSize);
+	
+	vector<double> vsPercentDrawdown(nSize), vsSquaredAverage(nSize);
+	for (int ii = 1; ii < nSize; ii++) {
+		int nStart = (ii < nPeriod)? 0:(ii - nPeriod + 1);
+		int nEnd = ii;
+		int nNum = nEnd - nStart + 1;
+		vector<double> vs;
+		vsClose.GetSubVector(vs, nStart, nEnd);
+		vsPercentDrawdown[ii] = (vsClose[ii] - max(vs)) / max(vs) * 100;
+		vsPercentDrawdown.GetSubVector(vs, nStart, nEnd);
+		vs *=vs;
+		vs.Sum(vsSquaredAverage[ii]); 
+		vsSquaredAverage[ii] = vsSquaredAverage[ii] / nNum;
+	};
+	vsUI = sqrt(vsSquaredAverage);
+	
+	return vsUI;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Ultimate Oscillator
+
+static void StockAnalyzer_ULT_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsClose(wksSource, 6);	// adj close
+	
+	int nPeriod1 = tr.GetNode("Period1").nVal;
+	int nPeriod2 = tr.GetNode("Period2").nVal;
+	int nPeriod3 = tr.GetNode("Period3").nVal;
+	
+	Dataset dsULT(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Ultimate Oscillator", StockAnalyzer_Legend("ULT", nPeriod1, nPeriod2, nPeriod3)));
+	
+	dsULT = StockAnalyzer_ULT(dsClose, nPeriod1, nPeriod2, nPeriod3);
+}
+
+static vector<double> StockAnalyzer_ULT(vector<double> vsClose, int nPeriod1, int nPeriod2, int nPeriod3) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsULT(nSize);
+	vector<double> vsBP(nSize), vsTR(nSize), vsAvg1(nSize), vsAvg2(nSize), vsAvg3(nSize);
+	
+	vector<double> vsTemp;
+	vsClose.GetSubVector(vsTemp, 0, 15);
+	double dLow = min(vsTemp);
+	double dHigh = max(vsTemp);
+	
+	for (int ii = 16; ii < nSize; ii++) {
+		dLow = min(dLow, vsClose[ii-1]);
+		dHigh = max(dHigh, vsClose[ii-1]);
+		vsBP[ii] = vsClose[ii] - dLow;
+		vsTR[ii] = dHigh - dLow;
+	};
+	
+	vsAvg1 = StockAnalyzer_MovingSum(vsBP, nPeriod1) / StockAnalyzer_MovingSum(vsTR, nPeriod1);
+	vsAvg2 = StockAnalyzer_MovingSum(vsBP, nPeriod2) / StockAnalyzer_MovingSum(vsTR, nPeriod2);
+	vsAvg3 = StockAnalyzer_MovingSum(vsBP, nPeriod3) / StockAnalyzer_MovingSum(vsTR, nPeriod3);
+	
+	vsULT = 100 * ((4 * vsAvg1) + (2 * vsAvg2) + vsAvg3) / (4 + 2 + 1);
+	
+	return vsULT;
+}
+
+static vector<double> StockAnalyzer_MovingSum(vector<double> vs, int nPeriod) {
+	int nSize = vs.GetSize();
+	vector<double> vsSum(nSize);		vsSum[0] = vs[0];
+	
+	for (int ii = 1; ii < nSize; ii++) {
+		int nStart = (ii < nPeriod)? 0:(ii - nPeriod + 1);
+		int nEnd = ii;
+		vector<double> vsSub;
+		vs.GetSubVector(vsSub, nStart, nEnd);
+		vsSub.Sum(vsSum[ii]);
+	}
+	
+	return vsSum;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Vortex Indicator
+
+static void StockAnalyzer_VI_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsHigh(wksSource, 2);		// 
+	Dataset dsLow(wksSource, 3);		// 
+	Dataset dsClose(wksSource, 4);	// real close
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	
+	Dataset dsVIp(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Vortex Indicator", StockAnalyzer_Legend("+VI", nPeriod)));
+	Dataset dsVIn(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Vortex Indicator", StockAnalyzer_Legend("-VI", nPeriod)));
+	
+	StockAnalyzer_VI(dsHigh, dsLow, dsClose, nPeriod, dsVIp, dsVIn);
+}
+
+static void StockAnalyzer_VI(vector<double> vsHigh, vector<double> vsLow, vector<double> vsClose, int nPeriod, vector<double> &vsVIp, vector<double> &vsVIn) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsVMp(nSize), vsVMn(nSize), vsTR(nSize);
+	
+	for (int ii = 1; ii < nSize; ii++) {
+		vsVMp[ii] = abs(vsHigh[ii] - vsLow[ii-1]);
+		vsVMn[ii] = abs(vsLow[ii] - vsHigh[ii-1]);
+		vsTR[ii] = max(vsHigh[ii] - vsLow[ii], max(abs(vsHigh[ii] - vsClose[ii-1]), abs(vsLow[ii] - vsClose[ii-1])));
+	}
+	
+	vsVMp = StockAnalyzer_MovingSum(vsVMp, nPeriod);
+	vsVMn = StockAnalyzer_MovingSum(vsVMn, nPeriod);
+	vsTR = StockAnalyzer_MovingSum(vsTR, nPeriod);
+	
+	vsVIp = vsVMp / vsTR;
+	vsVIn = vsVMn / vsTR;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 
