@@ -175,7 +175,7 @@ void StockAnalyzerDlg::UpdateIndicator(int nIndex) {
 
 void StockAnalyzerDlg::UpdateOverlay(int nIndex) {
 	//out_int("Overlay = ", nIndex);
-	SA_OverLay_Type(nIndex);
+	SA_OverLay_Type(nIndex, m_gp);
 }
 
 void StockAnalyzer_Main() {
@@ -242,6 +242,19 @@ static Tree StockAnalyzer_GUI() {
 			GETN_NUM(Period, "Period Window (N)", 20)	GETN_OPTION_NUM_FORMAT( ".0" )
 			GETN_NUM(Band, "Multiplier (K)", 2)					GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(BB)
+		
+		GETN_BEGIN_BRANCH(Chandlr, "Chandelier Exit")
+			GETN_NUM(Period, "Look-back ATR Period Window", 22)	GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Factor, "ATR Mulitplier", 3)	
+		GETN_END_BRANCH(Chandlr)
+		
+		GETN_BEGIN_BRANCH(Ichimoku, "Ichimoku Clouds")
+			GETN_NUM(Period1, "Conversion Period", 9)				GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period2, "Base Line Period", 26)				GETN_OPTION_NUM_FORMAT( ".0" )
+			GETN_NUM(Period3, "Leading Span Period", 52)		GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(Ichimoku)
+		
+		
 		
 	GETN_END_BRANCH(Overlays)
 	
@@ -407,6 +420,10 @@ static Tree StockAnalyzer_GUI() {
 		GETN_BEGIN_BRANCH(VI, "Vortex Indicator")
 			GETN_NUM(Period, "Period", 14)						GETN_OPTION_NUM_FORMAT( ".0" )
 		GETN_END_BRANCH(VI)
+		
+		GETN_BEGIN_BRANCH(WmR, "William %R")
+			GETN_NUM(Period, "Period", 14)						GETN_OPTION_NUM_FORMAT( ".0" )
+		GETN_END_BRANCH(WmR)
 		
 		/*
 		GETN_BEGIN_BRANCH(McClellan, "McClellan Oscillator")
@@ -736,6 +753,18 @@ void StockAnalyzer_MainProcess(int nUID) {
 	// Vortex Indicator
 	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 2);	
 	StockAnalyzer_VI_Main(wksIndicator, wksData, vsIndex, trIndicators.VI);
+	
+	// William %R
+	vsIndex = StockAnalyzer_Offset(nIndexIndicator, 1);	
+	StockAnalyzer_WilliamR_Main(wksIndicator, wksData, vsIndex, trIndicators.WmR);
+	
+	// Chandelier Exit
+	vsIndex = StockAnalyzer_Offset(nIndexOverlay, 2);
+	StockAnalyzer_ChandelierExit_Main(wksOverLay, wksData, vsIndex, trOverlays.Chandlr);
+	
+	// Ichimoku Clouds
+	vsIndex = StockAnalyzer_Offset(nIndexOverlay, 5);
+	StockAnalyzer_IchimokuCloud_Main(wksOverLay, wksData, vsIndex, trOverlays.Ichimoku);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2225,6 +2254,133 @@ static void StockAnalyzer_VI(vector<double> vsHigh, vector<double> vsLow, vector
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// William %R
+
+static void StockAnalyzer_WilliamR_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsHigh(wksSource, 2);		// 
+	Dataset dsLow(wksSource, 3);		// 
+	Dataset dsClose(wksSource, 4);	// real close
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	
+	Dataset dsWmR(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "William", StockAnalyzer_Legend("Wm%R", nPeriod)));
+	
+	dsWmR = StockAnalyzer_WilliamR(dsHigh, dsLow, dsClose, nPeriod);
+}
+
+static vector<double> StockAnalyzer_WilliamR(vector<double> vsHigh, vector<double> vsLow, vector<double> vsClose, int nPeriod) {
+	int nSize = vsClose.GetSize();
+	vector<double> vsWmR(nSize);
+	
+	for (int ii = 1; ii < nSize; ii++) {
+		int nStart = (ii < nPeriod)? 0:(ii - nPeriod + 1);
+		int nEnd = ii;
+		vector<double> vsSubHigh, vsSubLow;
+		vsHigh.GetSubVector(vsSubHigh, nStart, nEnd);
+		vsLow.GetSubVector(vsSubLow, nStart, nEnd);
+		vsWmR[ii] = (max(vsSubHigh) - vsClose[ii]) / (max(vsSubHigh) - min(vsSubLow)) * -100;
+	}
+	
+	return vsWmR;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Chandelier Exit
+
+static void StockAnalyzer_ChandelierExit_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsHigh(wksSource, 2);		// 
+	Dataset dsLow(wksSource, 3);		// 
+	Dataset dsClose(wksSource, 4);	// real close
+	
+	int nPeriod = tr.GetNode("Period").nVal;
+	double nFactor = tr.GetNode("Factor").nVal;
+	
+	Dataset dsLong(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Chandelier Exit", StockAnalyzer_Legend("CHANDLR_Long", nPeriod, nFactor)));
+	Dataset dsShort(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Chandelier Exit", StockAnalyzer_Legend("CHANDLR_Short", nPeriod, nFactor)));
+	
+	StockAnalyzer_ChandelierExit(dsHigh, dsLow, dsClose, nPeriod, nFactor, dsLong, dsShort);
+}
+
+static void StockAnalyzer_ChandelierExit(vector<double> vsHigh, vector<double> vsLow, vector<double> vsClose, int nPeriod, double nFactor, vector<double> &vsLong, vector<double> &vsShort) {
+	int nSize = vsClose.GetSize();
+	vsLong.SetSize(nSize);
+	vsShort.SetSize(nSize);
+	
+	vector<double> vsATR(nSize);
+	vsATR = StockAnalyzer_ATR(vsClose, vsHigh, vsLow, nPeriod);
+	
+	for (int ii = 0; ii < nSize; ii++) {
+		int nStart = (ii < nPeriod)? 0:(ii - nPeriod + 1);
+		int nEnd = ii;
+		vector<double> vsSubHigh, vsSubLow;
+		vsHigh.GetSubVector(vsSubHigh, nStart, nEnd);
+		vsLow.GetSubVector(vsSubLow, nStart, nEnd);
+		
+		vsLong[ii] = max(vsSubHigh) - vsATR[ii] * nFactor;
+		vsShort[ii] = min(vsSubLow) + vsATR[ii] * nFactor;
+	};
+	
+	
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Ichimoku Clouds
+
+static void StockAnalyzer_IchimokuCloud_Main(Worksheet wksTarget, Worksheet wksSource, vector<int> nIndex, Tree tr) {
+	Dataset dsDate(wksSource, 0);		// 	Date(X)
+	Dataset dsHigh(wksSource, 2);		// 
+	Dataset dsLow(wksSource, 3);		// 
+	Dataset dsClose(wksSource, 4);	// real close
+	
+	int nPeriod1 = tr.GetNode("Period1").nVal;
+	int nPeriod2 = tr.GetNode("Period2").nVal;
+	int nPeriod3 = tr.GetNode("Period3").nVal;
+	
+	Dataset dsTenkan(StockAnalyzer_SetColumn(wksTarget, nIndex[0], "Ichimoku Clouds", "Conversion Line"));
+	Dataset dsKijun(StockAnalyzer_SetColumn(wksTarget, nIndex[1], "Ichimoku Clouds", "Base Line"));
+	Dataset dsSenkouA(StockAnalyzer_SetColumn(wksTarget, nIndex[2], "Ichimoku Clouds", "Leading Span A"));
+	Dataset dsSenkouB(StockAnalyzer_SetColumn(wksTarget, nIndex[3], "Ichimoku Clouds", "Leading Span B"));
+	Dataset dsChikou(StockAnalyzer_SetColumn(wksTarget, nIndex[4], "Ichimoku Clouds", "Lagging Span"));
+	
+	dsTenkan = StockAnalyzer_IchimokuCloud_Span(dsHigh, dsLow, nPeriod1);
+	dsKijun = StockAnalyzer_IchimokuCloud_Span(dsHigh, dsLow, nPeriod2);
+	dsSenkouA = StockAnalyzer_Offset((dsTenkan + dsKijun) / 2, dsDate, 0);
+	dsSenkouB = StockAnalyzer_Offset(StockAnalyzer_IchimokuCloud_Span(dsHigh, dsLow, nPeriod3), dsDate, 0);
+	dsChikou = StockAnalyzer_Offset(dsClose, dsDate, 26);
+}
+
+static vector<double> StockAnalyzer_IchimokuCloud_Span(vector<double> vsHigh, vector<double> vsLow, int nPeriod) {
+	//<double> vsSpan;
+	return (StockAnalyzer_SMA(vsHigh, nPeriod) + StockAnalyzer_SMA(vsLow, nPeriod)) / 2;
+}
+
+static vector<double> StockAnalyzer_Offset(vector<double> vs, vector<double> &vsX, int nOffset) {
+	// Positive offset shifts curve to earlier
+	// Negative offset shifts curve to future
+	
+	int nSize = vs.GetSize();
+	int nSizeX = vsX.GetSize();
+	
+	// Expand X if needed
+	if (nSize - nOffset > nSizeX) {
+		double dLast = vsX[nSizeX-1];
+		for (int ii = 1; ii <= abs(nOffset); ii++) {
+			vsX.Add(dLast + ii);
+		};
+	}
+	
+	vector<double> vsNew(max(nSize - nOffset, nSize));
+	for (int ii = 0; ii < vsNew.GetSize(); ii++) {
+		int nPos = ii + nOffset;
+		if (nPos < 0) {
+			vsNew[ii] = NANUM;
+		}
+		else {
+			vsNew[ii] = vs[ii + nOffset];
+		};
+	};
+	return vsNew;
+}
 
 
 
@@ -2299,16 +2455,16 @@ static string StockAnalyzer_Legend(string strName, int nParam1, int nParam2 = -1
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Overlay
 
-void SA_OverLay_Type(int nType) {
+void SA_OverLay_Type(int nType, GraphPage gp) {
 	string strLegendName;
 	vector<int> vsIndex;	
 	SA_OverLayList(nType, vsIndex, strLegendName);
 	
-	GraphLayer gl = Project.ActiveLayer().GetPage().Layers(0);		// Get 1st layer
+	GraphLayer gl = gp.Layers(0);		// Get 1st layer
 	
 	SA_OverLay_ShowHide(gl, vsIndex, strLegendName);
 	
-	gl.GetPage().Refresh();
+	gp.Refresh();
 }
 
 static void SA_OverLay_ShowHide(GraphLayer gl, vector<int> vsIndex, string strLegendName) {
@@ -2340,6 +2496,11 @@ static bool SA_OverLayList(int nType, vector<int> &vsIndex, string &strLegendNam
 		vector<int> vsTemp = {0, 7, 8, 9};
 		vsIndex = vsTemp;
 		strLegendName = "LegendBB";
+		break;
+	case 4:	// Chandelier Exit
+		vector<int> vsTemp = {10, 11};
+		vsIndex = vsTemp;
+		strLegendName = "LegendCHANDLR";
 		break;
 	default:
 		vector<int> vsTemp = {0, 1, 2, 3};
@@ -2400,7 +2561,13 @@ static vector<string> SA_IndicatorList() {
 	sa.Add("Slope");
 	sa.Add("StdDev");
 	sa.Add("Sto");
-	sa.Add("");														// 30
+	sa.Add("StochRSI");														// 30
+	sa.Add("TRIX");	
+	sa.Add("TSI");	
+	sa.Add("UI");	
+	sa.Add("ULT");	
+	sa.Add("Vortex");	
+	sa.Add("WilliamR");	
 	return sa;
 }
 
