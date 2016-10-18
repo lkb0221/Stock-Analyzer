@@ -1,6 +1,10 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
-<html><head>
-<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type"><title>Stock Analyzer</title>
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+<link rel="stylesheet" href="http://code.jquery.com/mobile/1.4.5/jquery.mobile-1.4.5.min.css">
+<title>Stock Analyzer</title>
 
 <style type="text/css">
 	.column1 {
@@ -42,7 +46,7 @@
 	}
 
 	function PickOverlay() {
-		var nIndex = document.querySelector('input[name="Technical Indicator"]:checked').value;
+		var nIndex = document.querySelector('input[name="Technical Overlay"]:checked').value;
 		window.external.ExtCall("UpdateOverlay", nIndex); 
 	}
 
@@ -70,14 +74,14 @@
 	<div id="leftcontainer">
 		<form method="get" name="Technical Indicators">
 			<div onclick="PickOverlay()" class="column1">
-				<h4>Technical Overlays</h4>
+				<h5>Technical Overlays</h5>
 				<input name="Technical Overlay" value="1" type="radio"><label>Simple Moving Averge (SMA)</label><br>
 				<input name="Technical Overlay" value="2" type="radio"><label>Exponential Moving Average (EMA)</label><br>
 				<input name="Technical Overlay" value="3" type="radio"><label>Bollinger Band</label><br>
 				<input name="Technical Overlay" value="4" type="radio"><label>Chandelier Exit</label><br>
 			</div>
 			<div onclick="PickIndicator()" class="column2">
-				<h4>Technical Indicators</h4>
+				<h5>Technical Indicators</h5>
 				<input name="Technical Indicator" value="1" type="radio"><label>Accumulation Distribution Line(ADL)</label><br>
 				<input name="Technical Indicator" value="2" type="radio"><label>Aroon</label><br>
 				<input name="Technical Indicator" value="3" type="radio"><label>Aroon Oscillator</label><br>
